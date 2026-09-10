@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/page/book_player/epub_player.dart';
 import 'package:anx_reader/page/reading_page.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:flutter/material.dart';
 
 class ProgressWidget extends StatefulWidget {
@@ -31,18 +32,25 @@ class _ProgressWidgetState extends State<ProgressWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      margin: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+      decoration: BoxDecoration(
+        color: AnxUiTokens.raisedSurface(scheme),
+        borderRadius: BorderRadius.circular(AnxUiTokens.surfaceRadius),
+        border: Border.all(color: AnxUiTokens.quietBorder(scheme)),
+      ),
       child: Column(
         children: [
           const SizedBox(height: 10),
           Text(
             widget.epubPlayerKey.currentState!.chapterTitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 20,
+            style: (textTheme.titleMedium ?? const TextStyle()).copyWith(
               fontFamily: 'SourceHanSerif',
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const Divider(),
@@ -59,7 +67,7 @@ class _ProgressWidgetState extends State<ProgressWidget> {
               ),
               Expanded(
                 child: Slider(
-                  inactiveColor: Colors.grey.shade300,
+                  inactiveColor: scheme.outlineVariant.withValues(alpha: 0.55),
                   value: _readProgress,
                   onChanged: (value) {
                     setState(() {
@@ -127,25 +135,25 @@ class ProgressDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
     return Expanded(
       child: Column(
         children: [
           Text(
             mainText,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 20,
+            style: (textTheme.titleLarge ?? const TextStyle()).copyWith(
               fontFamily: 'SourceHanSerif',
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w700,
             ),
           ),
           Text(
             subText,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 10,
+            style: (textTheme.labelSmall ?? const TextStyle()).copyWith(
               fontFamily: 'SourceHanSerif',
-              fontWeight: FontWeight.w300,
+              fontWeight: FontWeight.w500,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           )
         ],

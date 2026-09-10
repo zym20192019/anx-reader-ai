@@ -1,6 +1,7 @@
 import 'package:anx_reader/main.dart';
 import 'package:anx_reader/service/tts/base_tts.dart';
 import 'package:anx_reader/service/tts/tts_handler.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/common/container/filled_container.dart';
 import 'package:flutter/material.dart';
 import 'package:icons_plus/icons_plus.dart';
@@ -98,8 +99,8 @@ class _TtsFabState extends State<TtsFab> with SingleTickerProviderStateMixin {
                     child: Padding(
                       padding: const EdgeInsets.only(right: 8.0),
                       child: FilledContainer(
-                        color:
-                            Theme.of(context).colorScheme.surfaceContainerHigh,
+                        color: Theme.of(context).colorScheme.surfaceContainer,
+                        radius: AnxUiTokens.controlRadius,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6.0, vertical: 4.0),
@@ -149,7 +150,9 @@ class _TtsFabState extends State<TtsFab> with SingleTickerProviderStateMixin {
                     heroTag: null,
                     mini: true,
                     onPressed: _toggleExpanded,
-                    elevation: 4,
+                    elevation: 3,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 200),
                       child: _isExpanded

@@ -30,7 +30,7 @@ class _OtherSettingsState extends State<OtherSettings> {
         ),
         leadingAndTrailingTextStyle: TextStyle(
           fontSize: 16,
-          color: Theme.of(context).textTheme.bodyLarge!.color,
+          color: Theme.of(context).textTheme.bodyLarge?.color,
         ),
         subtitle: Row(
           children: [
@@ -317,7 +317,7 @@ class _OtherSettingsState extends State<OtherSettings> {
     }
 
     return Container(
-      padding: const EdgeInsets.all(8.0),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
       child: Column(
         children: [
           fullScreen(),

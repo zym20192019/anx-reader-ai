@@ -5,6 +5,7 @@ import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/models/book_style.dart';
 import 'package:anx_reader/models/font_model.dart';
 import 'package:anx_reader/page/reading_page.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/page/settings_page/subpage/fonts.dart';
 import 'package:anx_reader/service/book_player/book_player_server.dart';
 import 'package:anx_reader/service/font.dart';
@@ -63,7 +64,7 @@ class StyleWidgetState extends State<StyleWidget> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
       child: Column(
         children: [
           widgetTitle(L10n.of(context).readingPageStyle, ReadingSettings.theme),
@@ -160,10 +161,15 @@ class StyleWidgetState extends State<StyleWidget> {
         child: DropdownMenu<PageTurn>(
           label: Text(L10n.of(context).readingPagePageTurningMethod),
           initialSelection: Prefs().pageTurnStyle,
-          expandedInsets: const EdgeInsets.only(right: 5),
+          expandedInsets: const EdgeInsets.only(right: 6),
           inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Theme.of(context).colorScheme.surfaceContainer,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(50),
+              borderRadius:
+                  BorderRadius.circular(AnxUiTokens.controlRadius),
             ),
           ),
           onSelected: (PageTurn? value) {
@@ -183,11 +189,16 @@ class StyleWidgetState extends State<StyleWidget> {
       Expanded(
         child: DropdownMenu<FontModel>(
           label: Text(L10n.of(context).font),
-          expandedInsets: const EdgeInsets.only(left: 5),
+          expandedInsets: const EdgeInsets.only(left: 6),
           initialSelection: font,
           inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Theme.of(context).colorScheme.surfaceContainer,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(50),
+              borderRadius:
+                  BorderRadius.circular(AnxUiTokens.controlRadius),
             ),
           ),
           onSelected: (FontModel? font) async {

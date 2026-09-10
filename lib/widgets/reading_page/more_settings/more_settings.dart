@@ -37,14 +37,19 @@ void showMoreSettings(ReadingSettings settings) {
     context: context,
     builder: (context) {
       return Dialog(
+        clipBehavior: Clip.antiAlias,
         child: PointerInterceptor(
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 600),
+            constraints: const BoxConstraints(maxWidth: 640),
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TabBar(
                   controller: tabController,
+                  isScrollable: true,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 8),
                   tabs: tabs,
                 ),
                 const Divider(height: 0),

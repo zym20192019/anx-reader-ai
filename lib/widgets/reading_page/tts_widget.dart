@@ -4,6 +4,7 @@ import 'package:anx_reader/main.dart';
 import 'package:anx_reader/service/tts/base_tts.dart';
 import 'package:anx_reader/service/tts/tts_handler.dart';
 import 'package:anx_reader/service/tts/tts_service.dart' as tts_svc;
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/reading_page/widget_title.dart';
 import 'package:anx_reader/page/book_player/epub_player.dart';
 import 'package:anx_reader/page/settings_page/narrate.dart';
@@ -165,8 +166,10 @@ class _TtsWidgetState extends State<TtsWidget> {
                           Text(
                             _getTtsServiceLabel(context),
                             style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                           const SizedBox(width: 4),
@@ -290,7 +293,15 @@ class _TtsWidgetState extends State<TtsWidget> {
         }
 
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          margin: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+          decoration: BoxDecoration(
+            color: AnxUiTokens.raisedSurface(Theme.of(context).colorScheme),
+            borderRadius: BorderRadius.circular(AnxUiTokens.surfaceRadius),
+            border: Border.all(
+              color: AnxUiTokens.quietBorder(Theme.of(context).colorScheme),
+            ),
+          ),
           child: Column(
             children: [
               widgetTitle(

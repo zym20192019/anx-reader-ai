@@ -4,6 +4,7 @@ import 'package:anx_reader/models/toc_item.dart';
 import 'package:anx_reader/page/book_player/epub_player.dart';
 import 'package:anx_reader/providers/book_toc.dart';
 import 'package:anx_reader/providers/toc_search.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/common/container/filled_container.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -313,13 +314,13 @@ class _BookTocState extends ConsumerState<BookToc> {
       },
     );
 
-    var searchBox = SizedBox(
-      height: 35,
+    var searchBox = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
       child: SearchBar(
         controller: searchBarController,
         shadowColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
         padding: const WidgetStatePropertyAll<EdgeInsets>(
-            EdgeInsets.symmetric(horizontal: 16.0)),
+            EdgeInsets.symmetric(horizontal: 12.0)),
         leading: const Icon(Icons.search),
         trailing: [
           isSearchActive
@@ -438,6 +439,14 @@ Widget searchResultWidget({
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextButton(
+            style: TextButton.styleFrom(
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius:
+                    BorderRadius.circular(AnxUiTokens.controlRadius),
+              ),
+            ),
             onPressed: () {
               setState(() {
                 isExpanded = !isExpanded;
@@ -460,10 +469,12 @@ Widget searchResultWidget({
           if (isExpanded)
             for (var subItem in searchResult.subitems)
               FilledContainer(
-                margin: EdgeInsets.only(bottom: 5),
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                margin: const EdgeInsets.only(bottom: 6),
                 width: double.infinity,
-                padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                radius: 10,
+                padding:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                radius: AnxUiTokens.controlRadius,
                 child: InkWell(
                   onTap: () {
                     hideAppBarAndBottomBar(false);
@@ -550,8 +561,22 @@ class TocItemWidget extends StatelessWidget {
                 Expanded(
                   child: TextButton(
                     onPressed: onTap,
-                    style: const ButtonStyle(
+                    style: TextButton.styleFrom(
                       alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      backgroundColor: isSelected
+                          ? Theme.of(context)
+                              .colorScheme
+                              .primaryContainer
+                              .withValues(alpha: 0.55)
+                          : null,
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(AnxUiTokens.controlRadius),
+                      ),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -598,7 +623,7 @@ class TocItemWidget extends StatelessWidget {
           indent: 10,
           endIndent: 20,
           thickness: 1,
-          color: Colors.grey.withAlpha(110),
+          color: AnxUiTokens.quietBorder(Theme.of(context).colorScheme),
         ),
       ],
     );

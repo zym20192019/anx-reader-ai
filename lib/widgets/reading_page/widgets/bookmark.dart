@@ -3,6 +3,7 @@ import 'package:anx_reader/models/bookmark.dart';
 import 'package:anx_reader/page/book_player/epub_player.dart';
 import 'package:anx_reader/providers/bookmark.dart';
 import 'package:anx_reader/utils/error_handler.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/common/container/filled_container.dart';
 import 'package:anx_reader/widgets/delete_confirm.dart';
 import 'package:flutter/material.dart';
@@ -36,17 +37,18 @@ class _BookmarkWidgetState extends ConsumerState<BookmarkWidget> {
               children: [
                 Text(
                   L10n.of(context).noBookmarks,
-                  style: Theme.of(context).textTheme.titleLarge!.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: (Theme.of(context).textTheme.titleLarge ??
+                          const TextStyle())
+                      .copyWith(fontWeight: FontWeight.w700),
                 ),
-                SizedBox(height: 16.0),
+                const SizedBox(height: 16.0),
                 Text(L10n.of(context).noBookmarksTip),
               ],
             ),
           );
         }
         return ListView.builder(
+          padding: const EdgeInsets.only(top: 4, bottom: 12),
           itemCount: bookmarks.length,
           itemBuilder: (context, index) {
             final bookmark = bookmarks[index];
@@ -96,7 +98,9 @@ class BookmarkItem extends StatelessWidget {
     return GestureDetector(
       onTap: () => onTap(bookmark.cfi),
       child: FilledContainer(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
         padding: const EdgeInsets.all(12.0),
+        radius: AnxUiTokens.controlRadius,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

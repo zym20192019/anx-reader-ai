@@ -1,5 +1,6 @@
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/page/book_player/epub_player.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/reading_page/widgets/book_toc.dart';
 import 'package:anx_reader/widgets/reading_page/widgets/bookmark.dart';
 import 'package:flutter/material.dart';
@@ -38,18 +39,31 @@ class _TocWidgetState extends State<TocWidget>
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Column(
       children: [
-        TabBar(
-          controller: _tabController,
-          tabs: [
-            Tab(text: L10n.of(context).readingContents),
-            Tab(text: L10n.of(context).readingBookmark),
-          ],
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow,
+            border: Border(
+              bottom: BorderSide(color: AnxUiTokens.quietBorder(scheme)),
+            ),
+          ),
+          child: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            indicatorSize: TabBarIndicatorSize.tab,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+            tabs: [
+              Tab(text: L10n.of(context).readingContents),
+              Tab(text: L10n.of(context).readingBookmark),
+            ],
+          ),
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
             child: TabBarView(
               controller: _tabController,
               children: [

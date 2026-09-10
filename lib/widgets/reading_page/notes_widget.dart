@@ -1,4 +1,5 @@
 import 'package:anx_reader/l10n/generated/L10n.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/book_notes/book_notes_list.dart';
 import 'package:anx_reader/widgets/reading_page/widget_title.dart';
 import 'package:flutter/material.dart';
@@ -12,9 +13,18 @@ class ReadingNotes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      height: MediaQuery.of(context).size.height - 300,
+      margin: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.58,
+      ),
+      decoration: BoxDecoration(
+        color: AnxUiTokens.raisedSurface(scheme),
+        borderRadius: BorderRadius.circular(AnxUiTokens.surfaceRadius),
+        border: Border.all(color: AnxUiTokens.quietBorder(scheme)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
