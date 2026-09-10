@@ -16,7 +16,8 @@ class AnxUiTokens {
       EdgeInsets.symmetric(horizontal: 20, vertical: 16);
   static const EdgeInsets compactControlPadding =
       EdgeInsets.symmetric(horizontal: 12, vertical: 8);
-  static const EdgeInsets settingTilePadding = EdgeInsetsDirectional.only(
+  static const EdgeInsetsGeometry settingTilePadding =
+      EdgeInsetsDirectional.only(
     start: 12,
     end: 12,
     top: 12,
