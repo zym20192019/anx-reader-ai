@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4
+- Fix(Windows): Avoid the several-second delay when closing the desktop window by using the normal window close path.
+- Fix(Windows): 修复点击右上角关闭按钮时窗口卡顿数秒的问题，改用正常窗口关闭流程。
+
 ## 1.0.0
 - Created the independent Anx Reader AI project from the verified beta snapshot.
 - Added independent platform identities and a multi-platform unsigned release pipeline.
