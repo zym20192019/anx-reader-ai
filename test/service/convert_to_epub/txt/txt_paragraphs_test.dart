@@ -100,6 +100,23 @@ void main() {
       );
     });
 
+    test('keeps long complete lines separate inside fixed-width-shaped text', () {
+      const source = '''
+这是一个固定宽度的短行内容，结尾继续。
+这是一个超过检测宽度很多的完整段落，它本来就已经是完整的一段文字，不应该因为后面还有一个空行就和下一段拼接起来。
+
+下一段从这里开始。''';
+
+      expect(
+        reconstructParagraphs(source),
+        equals([
+          '这是一个固定宽度的短行内容，结尾继续。',
+          '这是一个超过检测宽度很多的完整段落，它本来就已经是完整的一段文字，不应该因为后面还有一个空行就和下一段拼接起来。',
+          '下一段从这里开始。',
+        ]),
+      );
+    });
+
     test('recognizes English chapter headings', () {
       const source = 'Chapter 1: Beginning\n正文内容。\nBook 2 - Next';
 

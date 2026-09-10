@@ -178,9 +178,13 @@ List<String> reconstructParagraphs(String input) {
     }
 
     if (fixedWidth != null) {
-      // One blank is a physical-wrap artifact in this document shape; two or
-      // more blanks remain an explicit paragraph boundary.
-      if (blankRun > 1) {
+      // One blank is normally a physical-wrap artifact. A line that is
+      // materially longer than the detected width is different: it is most
+      // likely an already-complete paragraph, so keep its boundary.
+      if (blankRun > 1 ||
+          (blankRun > 0 &&
+              previousPhysicalLine != null &&
+              previousPhysicalLine!.length > fixedWidth.width + 2)) {
         flushBuffer();
       }
     } else if (blankRun > 0) {
