@@ -113,7 +113,9 @@ jobs:
   windows:
     name: Windows unsigned ZIP and installer
     needs: metadata
-    runs-on: windows-latest
+    # Flutter 3.35.3 selects the VS2019 CMake generator for VS 2026.
+    # Pin the runner to the image that provides Visual Studio 2022.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -227,7 +229,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
           flutter config --enable-linux-desktop
           flutter pub get
           flutter gen-l10n
