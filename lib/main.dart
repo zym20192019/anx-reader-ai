@@ -90,6 +90,8 @@ class MyApp extends ConsumerStatefulWidget {
 
 class _MyAppState extends ConsumerState<MyApp>
     with WidgetsBindingObserver, WindowListener {
+  bool _isClosing = false;
+
   @override
   void initState() {
     super.initState();
@@ -100,16 +102,30 @@ class _MyAppState extends ConsumerState<MyApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    windowManager.removeListener(this);
     super.dispose();
   }
 
   @override
   Future<void> onWindowClose() async {
-    await Server().stop();
-    await webViewEnvironment?.dispose();
-    webViewEnvironment = null;
-    await DBHelper.close();
-    await windowManager.destroy();
+    // The close event is emitted again when the prevent-close guard is
+    // released and the normal close request is sent below.
+    if (_isClosing) return;
+    _isClosing = true;
+
+    try {
+      await Server().stop();
+      await webViewEnvironment?.dispose();
+      webViewEnvironment = null;
+      await DBHelper.close();
+    } catch (e, s) {
+      AnxLog.warning('Window close cleanup failed: $e', e, s);
+    } finally {
+      // windowManager.destroy() can stall for several seconds on Windows.
+      // Allow the native close message through and close normally instead.
+      await windowManager.setPreventClose(false);
+      await windowManager.close();
+    }
   }
 
   @override
