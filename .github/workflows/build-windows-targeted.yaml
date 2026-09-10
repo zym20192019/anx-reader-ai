@@ -1,0 +1,89 @@
+name: Targeted Windows Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Build version, for example 1.0.3'
+        required: true
+        type: string
+        default: '1.0.3'
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.35.3'
+
+jobs:
+  windows:
+    name: Windows unsigned ZIP and installer
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows bundle and unsigned installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '${{ inputs.version }}'
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') {
+            throw "Invalid build version: $version"
+          }
+
+          flutter config --enable-windows-desktop
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build windows --release --build-name "$version" --build-number "${{ github.run_number }}"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Flutter Windows build failed with exit code $LASTEXITCODE."
+          }
+
+          $releaseDir = 'build/windows/x64/runner/Release'
+          $exe = Join-Path $releaseDir 'anx_reader_ai.exe'
+          if (!(Test-Path $exe)) {
+            throw 'Expected independent Windows executable was not produced.'
+          }
+
+          $zip = "Anx-Reader-AI-windows-${version}-unsigned.zip"
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zip
+
+          Remove-Item 'D:\inno' -Force -Recurse -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path 'D:\inno' | Out-Null
+          Copy-Item -Path "$releaseDir/*" -Destination 'D:\inno' -Recurse
+          Copy-Item -Path 'windows/runner/resources/app_icon.ico' -Destination 'D:\inno/logo.ico'
+
+          Remove-Item 'D:\inno-result' -Force -Recurse -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path 'D:\inno-result' | Out-Null
+          $iss = Get-Content 'scripts/compile_windows_setup-inno.iss' -Raw
+          $iss = '#define MyAppVersion "' + $version + '"' + [Environment]::NewLine + $iss
+          Set-Content -Path 'scripts/compile_windows_setup-inno.iss' -Value $iss -Encoding UTF8
+
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' 'scripts/compile_windows_setup-inno.iss'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
+          }
+          if (!(Test-Path 'D:\inno-result\app.exe')) {
+            throw 'Expected unsigned Windows installer was not produced.'
+          }
+
+          Copy-Item 'D:\inno-result\app.exe' "Anx-Reader-AI-windows-${version}-unsigned.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-targeted
+          path: |
+            Anx-Reader-AI-windows-${{ inputs.version }}-unsigned.zip
+            Anx-Reader-AI-windows-${{ inputs.version }}-unsigned.exe
+          if-no-files-found: error
