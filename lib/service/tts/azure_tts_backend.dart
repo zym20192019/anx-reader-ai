@@ -33,7 +33,7 @@ class AzureTtsProvider extends TtsServiceProvider {
         label: L10n.of(context).translateTip,
         type: ConfigItemType.tip,
         defaultValue: L10n.of(context).settingsNarrateAzureHelpText,
-        link: 'https://anx.anxcye.com/docs/tts/azure',
+        link: 'https://github.com/zym20192019/anx-reader-ai/blob/main/docs/provider-configuration.md',
       ),
       ConfigItem(
         key: 'key',

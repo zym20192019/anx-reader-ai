@@ -26,7 +26,7 @@ Future<void> checkUpdate(bool manualCheck) async {
   BuildContext context = navigatorKey.currentContext!;
   Response response;
   try {
-    response = await Dio().get('https://api.anx.anxcye.com/api/info/latest');
+    response = await Dio().get('https://api.github.com/repos/zym20192019/anx-reader-ai/releases/latest');
   } catch (e) {
     if (manualCheck) {
       AnxToast.show(L10n.of(context).commonFailed);
@@ -34,7 +34,9 @@ Future<void> checkUpdate(bool manualCheck) async {
     AnxLog.severe('Update: Failed to check for updates $e');
     return;
   }
-  String newVersion = response.data['version'].toString().substring(1);
+  String newVersion = response.data['tag_name']
+      .toString()
+      .replaceFirst('anx-ai-v', '');
   String currentVersion = (await getAppVersion()).split('+').first;
   AnxLog.info('Update: new version $newVersion');
 
@@ -85,14 +87,14 @@ $body'''),
               onPressed: () {
                 launchUrl(
                     Uri.parse(
-                        'https://github.com/Anxcye/anx-reader/releases/latest'),
+                        'https://github.com/zym20192019/anx-reader-ai/releases/latest'),
                     mode: LaunchMode.externalApplication);
               },
               child: Text(L10n.of(context).updateViaGithub),
             ),
             TextButton(
               onPressed: () {
-                launchUrl(Uri.parse('https://anx.anxcye.com/download'),
+                launchUrl(Uri.parse('https://github.com/zym20192019/anx-reader-ai/releases/latest'),
                     mode: LaunchMode.externalApplication);
               },
               child: Text(L10n.of(context).updateViaOfficialWebsite),

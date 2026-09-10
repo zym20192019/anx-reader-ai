@@ -1,0 +1,363 @@
+name: Independent Multi-platform Release
+
+on:
+  push:
+    tags:
+      - 'anx-ai-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, for example 1.0.0'
+        required: true
+        type: string
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.35.3'
+
+jobs:
+  metadata:
+    name: Validate release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify independent project contract
+        run: python3 tool/check_independent_platform_identity.py
+      - id: meta
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$INPUT_VERSION"
+            tag="anx-ai-v$version"
+          else
+            tag="$GITHUB_REF_NAME"
+            version="${tag#anx-ai-v}"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+  android:
+    name: Android universal APK
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+          cache: gradle
+      - name: Prepare Flutter sources
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+      - name: Generate temporary CI signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/anx-reader-ai.jks"
+          password="$(openssl rand -hex 32)"
+          keytool -genkeypair -v -keystore "$keystore" -storetype JKS \
+            -storepass "$password" -keypass "$password" -alias anx-reader-ai \
+            -keyalg RSA -keysize 2048 -validity 365 \
+            -dname 'CN=Anx Reader AI CI, O=zym20192019, C=US' -noprompt
+          {
+            printf 'storePassword=%s\n' "$password"
+            printf 'keyPassword=%s\n' "$password"
+            printf 'keyAlias=anx-reader-ai\n'
+            printf 'storeFile=%s\n' "$keystore"
+          } > android/key.properties
+      - name: Build and verify APK
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build apk --release \
+            --build-name "$VERSION"
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          test -f "$apk"
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
+          test -d "$sdk_root/build-tools"
+          aapt="$(find "$sdk_root/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$aapt"
+          test -x "$aapt"
+          badging="$($aapt dump badging "$apk")"
+          grep -F "package: name='com.zym20192019.anxreader'" <<< "$badging"
+          grep -F "application-label:'Anx Reader AI'" <<< "$badging"
+          mv "$apk" "Anx-Reader-AI-android-${VERSION}-universal.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: Anx-Reader-AI-android-${{ needs.metadata.outputs.version }}-universal.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows unsigned ZIP and installer
+    needs: metadata
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Build Windows bundle and unsigned installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          flutter config --enable-windows-desktop
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build windows --release --build-name "${{ needs.metadata.outputs.version }}" --build-number "${{ github.run_number }}"
+          $releaseDir = 'build/windows/x64/runner/Release'
+          $exe = Join-Path $releaseDir 'anx_reader_ai.exe'
+          if (!(Test-Path $exe)) {
+            throw 'Expected independent Windows executable was not produced.'
+          }
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath "Anx-Reader-AI-windows-${{ needs.metadata.outputs.version }}-unsigned.zip"
+          Remove-Item 'D:\inno' -Force -Recurse -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path 'D:\inno' | Out-Null
+          Copy-Item -Path "$releaseDir/*" -Destination 'D:\inno' -Recurse
+          Copy-Item -Path 'windows/runner/resources/app_icon.ico' -Destination 'D:\inno/logo.ico'
+          Remove-Item 'D:\inno-result' -Force -Recurse -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path 'D:\inno-result' | Out-Null
+          $version = '${{ needs.metadata.outputs.version }}'
+          $iss = Get-Content 'scripts/compile_windows_setup-inno.iss' -Raw
+          $iss = '#define MyAppVersion "' + $version + '"' + [Environment]::NewLine + $iss
+          Set-Content -Path 'scripts/compile_windows_setup-inno.iss' -Value $iss -Encoding UTF8
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' -ns 'scripts/compile_windows_setup-inno.iss'
+          if (!(Test-Path 'D:\inno-result\app.exe')) {
+            throw 'Expected unsigned Windows installer was not produced.'
+          }
+          Copy-Item 'D:\inno-result\app.exe' "Anx-Reader-AI-windows-${{ needs.metadata.outputs.version }}-unsigned.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            Anx-Reader-AI-windows-${{ needs.metadata.outputs.version }}-unsigned.zip
+            Anx-Reader-AI-windows-${{ needs.metadata.outputs.version }}-unsigned.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS unsigned ZIP and DMG
+    needs: metadata
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build macOS bundle without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter config --enable-macos-desktop
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build macos --config-only \
+            --build-name "${{ needs.metadata.outputs.version }}" \
+            --build-number "${{ github.run_number }}"
+          build_dir="${GITHUB_WORKSPACE}/build/macos"
+          mkdir -p "$build_dir/Build/Intermediates.noindex" "$build_dir/Build/Products"
+          xcrun xcodebuild \
+            -workspace macos/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -derivedDataPath "$build_dir" \
+            -destination 'generic/platform=macOS' \
+            OBJROOT="$build_dir/Build/Intermediates.noindex" \
+            SYMROOT="$build_dir/Build/Products" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+          app_path="$(find "$build_dir/Build/Products/Release" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -f "$app_path/Contents/Info.plist"
+          ditto -c -k --keepParent "$app_path" "$GITHUB_WORKSPACE/Anx-Reader-AI-macos-${{ needs.metadata.outputs.version }}-unsigned.zip"
+          hdiutil create -volname "Anx Reader AI" -srcfolder "$app_path" -ov -format UDZO "$GITHUB_WORKSPACE/Anx-Reader-AI-macos-${{ needs.metadata.outputs.version }}-unsigned.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            Anx-Reader-AI-macos-${{ needs.metadata.outputs.version }}-unsigned.zip
+            Anx-Reader-AI-macos-${{ needs.metadata.outputs.version }}-unsigned.dmg
+          if-no-files-found: error
+
+  linux:
+    name: Linux tar.gz
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build Linux bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+          flutter config --enable-linux-desktop
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build linux --release \
+            --build-name "${{ needs.metadata.outputs.version }}" \
+            --build-number "${{ github.run_number }}"
+          test -d build/linux/x64/release/bundle
+          tar -czf "Anx-Reader-AI-linux-${{ needs.metadata.outputs.version }}.tar.gz" -C build/linux/x64/release bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: Anx-Reader-AI-linux-${{ needs.metadata.outputs.version }}.tar.gz
+          if-no-files-found: error
+
+  web:
+    name: Web tar.gz
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build Web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build web --release \
+            --build-name "${{ needs.metadata.outputs.version }}" \
+            --build-number "${{ github.run_number }}"
+          test -f build/web/index.html
+          tar -czf "Anx-Reader-AI-web-${{ needs.metadata.outputs.version }}.tar.gz" -C build web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: Anx-Reader-AI-web-${{ needs.metadata.outputs.version }}.tar.gz
+          if-no-files-found: error
+
+  ios:
+    name: iOS unsigned IPA for local signing
+    needs: metadata
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Build and package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+          export CODE_SIGNING_ALLOWED=NO
+          export CODE_SIGNING_REQUIRED=NO
+          flutter build ios --release --no-codesign \
+            --build-name "${{ needs.metadata.outputs.version }}" \
+            --build-number "${{ github.run_number }}"
+          app_path="$(find build/ios -type d -path '*/Runner.app' -print -quit)"
+          test -n "$app_path"
+          package_dir="$RUNNER_TEMP/anx-reader-ai-ipa"
+          mkdir -p "$package_dir/Payload"
+          cp -R "$app_path" "$package_dir/Payload/Runner.app"
+          (cd "$package_dir" && zip -qr "$GITHUB_WORKSPACE/Anx-Reader-AI-ios-${{ needs.metadata.outputs.version }}-unsigned.ipa" Payload)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: Anx-Reader-AI-ios-${{ needs.metadata.outputs.version }}-unsigned.ipa
+          if-no-files-found: error
+
+  release:
+    name: Create formal GitHub Release
+    needs: [metadata, android, windows, macos, linux, web, ios]
+    if: ${{ always() && needs.metadata.result == 'success' && needs.android.result == 'success' && needs.windows.result == 'success' && needs.macos.result == 'success' && needs.linux.result == 'success' && needs.web.result == 'success' && needs.ios.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Verify every release asset
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            "artifacts/android/Anx-Reader-AI-android-${VERSION}-universal.apk"
+            "artifacts/windows/Anx-Reader-AI-windows-${VERSION}-unsigned.zip"
+            "artifacts/windows/Anx-Reader-AI-windows-${VERSION}-unsigned.exe"
+            "artifacts/macos/Anx-Reader-AI-macos-${VERSION}-unsigned.zip"
+            "artifacts/macos/Anx-Reader-AI-macos-${VERSION}-unsigned.dmg"
+            "artifacts/linux/Anx-Reader-AI-linux-${VERSION}.tar.gz"
+            "artifacts/web/Anx-Reader-AI-web-${VERSION}.tar.gz"
+            "artifacts/ios/Anx-Reader-AI-ios-${VERSION}-unsigned.ipa"
+          )
+          printf '%s\n' "${expected[@]}"
+          for asset in "${expected[@]}"; do
+            test -s "$asset"
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.metadata.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Anx Reader AI ${{ needs.metadata.outputs.version }}
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            Independent Anx Reader AI release.
+
+            - Android APK: signed with a temporary CI key; it can coexist with the official package but cannot upgrade an upstream-signed app.
+            - Windows ZIP/EXE installers: unsigned.
+            - macOS ZIP/DMG: unsigned and may require local trust approval.
+            - Linux and Web archives: unsigned.
+            - iOS IPA: unsigned; sign locally with 全能签 or the user's own Apple signing workflow.
+          files: |
+            artifacts/android/*.apk
+            artifacts/windows/*.zip
+            artifacts/windows/*.exe
+            artifacts/macos/*.zip
+            artifacts/macos/*.dmg
+            artifacts/linux/*.tar.gz
+            artifacts/web/*.tar.gz
+            artifacts/ios/*.ipa
+          fail_on_unmatched_files: true

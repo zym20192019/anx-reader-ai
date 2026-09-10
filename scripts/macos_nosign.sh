@@ -1,21 +1,18 @@
-#!/bin/bash
-# Path to your project.pbxproj file
-PROJECT_FILE="macos/Runner.xcodeproj/project.pbxproj"
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "Disabling code signing for CI build..."
+project_file="macos/Runner.xcodeproj/project.pbxproj"
+test -f "$project_file"
 
-# Remove code signing identity
-sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=macosx\*\]" = "Apple Development"/"CODE_SIGN_IDENTITY\[sdk=macosx\*\]" = "-"/g' "$PROJECT_FILE"
+# The release workflow supplies CODE_SIGNING_ALLOWED=NO and CODE_SIGNING_REQUIRED=NO.
+# This guard rejects only actual upstream signing coupling, not empty local fields.
+python3 - "$project_file" <<'PY'
+from pathlib import Path
+import sys
 
-# Change code sign style to Manual
-sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "$PROJECT_FILE"
-
-# Remove development team
-sed -i '' 's/DEVELOPMENT_TEAM = 28W956D5K8;//g' "$PROJECT_FILE"
-
-# Add additional code signing settings - fixed for macOS
-sed -i '' '/MACOSX_DEPLOYMENT_TARGET/a\
-                CODE_SIGNING_REQUIRED = NO;\
-                CODE_SIGNING_ALLOWED = NO;' "$PROJECT_FILE"
-
-echo "Code signing disabled successfully!"
+project = Path(sys.argv[1]).read_text(encoding="utf-8")
+for forbidden in ("DEVELOPMENT_TEAM = 28W", "match AppStore", "com.anxcye"):
+    if forbidden in project:
+        raise SystemExit(f"forbidden signing coupling remains: {forbidden}")
+print("macOS unsigned-build configuration verified")
+PY

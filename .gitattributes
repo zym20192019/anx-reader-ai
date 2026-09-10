@@ -1,4 +1,7 @@
 *.js linguist-detectable=false
+*.yaml text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
 
 # ignore diff for generated files
 *.gen.dart binary

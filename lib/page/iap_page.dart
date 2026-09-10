@@ -137,7 +137,7 @@ class IAPPage extends ConsumerWidget {
                         child: Text(L10n.of(context).aboutPrivacyPolicy),
                         onPressed: () async {
                           launchUrl(
-                            Uri.parse('https://anx.anxcye.com/privacy.html'),
+                            Uri.parse('https://github.com/zym20192019/anx-reader-ai/blob/main/docs/privacy.md'),
                             mode: LaunchMode.externalApplication,
                           );
                         },
@@ -146,7 +146,7 @@ class IAPPage extends ConsumerWidget {
                         child: Text(L10n.of(context).aboutTermsOfUse),
                         onPressed: () async {
                           launchUrl(
-                            Uri.parse('https://anx.anxcye.com/terms.html'),
+                            Uri.parse('https://github.com/zym20192019/anx-reader-ai/blob/main/docs/terms.md'),
                             mode: LaunchMode.externalApplication,
                           );
                         },

@@ -4,11 +4,11 @@
 ; Copy app/assets/packaging/logo-256.ico to D:\inno\logo-256.ico
 ; #define MyAppVersion "1.0.0"
 
-#define MyAppName "AnxReader"
-#define MyAppPublisher "Anxcye"
-#define MyAppURL "https://github.com/Anxcye/Anx-Reader"
-#define MyAppExeName "anx_reader.exe"
-#define MyAppId "{{32610E5D-B613-420A-B68F-A57E2102BCE3}}"
+#define MyAppName "Anx Reader AI"
+#define MyAppPublisher "zym20192019"
+#define MyAppURL "https://github.com/zym20192019/anx-reader-ai"
+#define MyAppExeName "anx_reader_ai.exe"
+#define MyAppId "{{A4B193E8-8CB1-4A31-9C2E-8D0E2C77F2A1}}"
 
 
 [Setup]

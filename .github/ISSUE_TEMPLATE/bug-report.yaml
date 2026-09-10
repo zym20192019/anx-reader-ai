@@ -9,7 +9,7 @@ body:
     attributes:
       label: Prerequisites|前提条件
       options:
-        - label: I have checked the [troubleshooting](https://github.com/Anxcye/anx-reader/blob/develop/docs/troubleshooting.md)|我已经查看过[故障排除](https://github.com/Anxcye/anx-reader/blob/develop/docs/troubleshooting.md)
+        - label: I have checked the [standalone troubleshooting docs](https://github.com/zym20192019/anx-reader-ai/tree/main/docs)|我已经查看过[独立项目故障排除文档](https://github.com/zym20192019/anx-reader-ai/tree/main/docs)
           required: true
         - label: I have searched for similar issues and did not find any|我已经搜索过没有相同的问题
           required: true

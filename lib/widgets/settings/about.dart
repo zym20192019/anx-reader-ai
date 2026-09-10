@@ -115,7 +115,7 @@ Future<void> openAboutDialog() async {
                   padding: const EdgeInsets.fromLTRB(0, 0, 0, 5),
                   child: Center(
                     child: Text(
-                      'Anx',
+                      'Anx Reader AI',
                       style: TextStyle(
                         fontSize: 50,
                         fontWeight: FontWeight.bold,
@@ -150,7 +150,7 @@ Future<void> openAboutDialog() async {
                   onTap: () {
                     showLicensePage(
                       context: context,
-                      applicationName: 'Anx',
+                      applicationName: 'Anx Reader AI',
                       applicationVersion: version,
                     );
                   },
@@ -160,7 +160,7 @@ Future<void> openAboutDialog() async {
                   onTap: () {
                     launchUrl(
                       Uri.parse(
-                          'https://github.com/Anxcye/anx-reader/graphs/contributors'),
+                          'https://github.com/zym20192019/anx-reader-ai/graphs/contributors'),
                       mode: LaunchMode.externalApplication,
                     );
                   },
@@ -169,7 +169,7 @@ Future<void> openAboutDialog() async {
                   title: Text(L10n.of(context).aboutPrivacyPolicy),
                   onTap: () async {
                     launchUrl(
-                      Uri.parse('https://anx.anxcye.com/privacy'),
+                      Uri.parse('https://github.com/zym20192019/anx-reader-ai/blob/main/docs/privacy.md'),
                       mode: LaunchMode.externalApplication,
                     );
                   },
@@ -178,7 +178,7 @@ Future<void> openAboutDialog() async {
                   title: Text(L10n.of(context).aboutTermsOfUse),
                   onTap: () async {
                     launchUrl(
-                      Uri.parse('https://anx.anxcye.com/terms'),
+                      Uri.parse('https://github.com/zym20192019/anx-reader-ai/blob/main/docs/terms.md'),
                       mode: LaunchMode.externalApplication,
                     );
                   },
@@ -187,7 +187,7 @@ Future<void> openAboutDialog() async {
                   title: Text(L10n.of(context).aboutHelp),
                   onTap: () async {
                     launchUrl(
-                      Uri.parse('https://anx.anxcye.com/docs'),
+                      Uri.parse('https://github.com/zym20192019/anx-reader-ai/tree/main/docs'),
                       mode: LaunchMode.externalApplication,
                     );
                   },
@@ -213,14 +213,14 @@ Future<void> openAboutDialog() async {
                             IonIcons.earth,
                             color: Theme.of(context).colorScheme.secondary,
                           ),
-                          url: 'https://anx.anxcye.com',
+                          url: 'https://github.com/zym20192019/anx-reader-ai',
                           mode: LaunchMode.externalApplication),
                       linkIcon(
                           icon: Icon(
                             IonIcons.logo_github,
                             color: Theme.of(context).colorScheme.secondary,
                           ),
-                          url: 'https://github.com/Anxcye/anx-reader',
+                          url: 'https://github.com/zym20192019/anx-reader-ai',
                           mode: LaunchMode.externalApplication),
                       if (EnvVar.showTelegramLink)
                         linkIcon(

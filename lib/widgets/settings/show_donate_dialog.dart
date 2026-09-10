@@ -12,7 +12,7 @@ void showDonateDialog(BuildContext context) {
         TextButton(
           onPressed: () {
             launchUrl(
-              Uri.parse('https://anxcye.com/home/7'),
+              Uri.parse('https://github.com/zym20192019/anx-reader-ai'),
               mode: LaunchMode.externalApplication,
             );
           },

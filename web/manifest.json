@@ -1,11 +1,11 @@
 {
-    "name": "anx_reader",
-    "short_name": "anx_reader",
+    "name": "Anx Reader AI",
+    "short_name": "Anx Reader AI",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#hexcode",
     "theme_color": "#hexcode",
-    "description": "A new Flutter project.",
+    "description": "An independent AI-first ebook reader and reading workspace.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

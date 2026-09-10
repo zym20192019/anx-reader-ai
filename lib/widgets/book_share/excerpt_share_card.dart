@@ -89,7 +89,7 @@ class ExcerptShareCard extends StatelessWidget {
   Widget _getAnxReaderLogo({double fontSize = 12, Color? color}) {
     color ??= textColor;
     return Text(
-      'Anx Reader',
+      'Anx Reader AI',
       style: TextStyle(
         fontSize: fontSize,
         fontWeight: FontWeight.w100,

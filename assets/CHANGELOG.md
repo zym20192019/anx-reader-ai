@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0
+- Created the independent Anx Reader AI project from the verified beta snapshot.
+- Added independent platform identities and a multi-platform unsigned release pipeline.
+- 建立独立 Anx Reader AI 项目，保留已验证的阅读器、AI Agent 与 Workspace 基础能力。
+- 新增独立多平台身份和 unsigned Release 流程。
+
 ## 1.14.1-beta.2
 - Fix(android): Use an independent application id (`com.zym20192019.anxreader`) and app label (`Anx Reader AI`) so the Fork can coexist with the official Anx Reader installation.
 - Fix(android): 使用独立应用 ID（`com.zym20192019.anxreader`）和应用名称（`Anx Reader AI`），使 Fork 可以与官方 Anx Reader 同时安装。
