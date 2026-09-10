@@ -101,11 +101,9 @@ class BookItem extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 8),
-          SizedBox(
-            height: 66,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Column(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
@@ -171,7 +169,6 @@ class BookItem extends ConsumerWidget {
                 ],
               ),
             ),
-          ),
         ],
       ),
     );

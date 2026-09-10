@@ -8,6 +8,7 @@ import 'package:anx_reader/widgets/bookshelf/book_cover.dart';
 import 'package:anx_reader/widgets/bookshelf/book_item.dart';
 import 'package:anx_reader/widgets/bookshelf/book_opened_folder.dart';
 import 'package:anx_reader/widgets/common/container/outlined_container.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:provider/provider.dart';
@@ -30,6 +31,9 @@ class _BookFolderState extends ConsumerState<BookFolder> {
   @override
   Widget build(BuildContext context) {
     final folderStyle = context.watch<Prefs>().bookshelfFolderStyle;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final coverRadius = BorderRadius.circular(AnxUiTokens.controlRadius);
 
     void onAcceptBook(DragTargetDetails<Book> details) {
       int targetGroupId;
@@ -116,13 +120,25 @@ class _BookFolderState extends ConsumerState<BookFolder> {
                     scale: 1 - (count * 0.08),
                     child: Container(
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
+                        color: scheme.surfaceContainerLow,
+                        borderRadius: coverRadius,
                         border: Border.all(
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                          width: 1,
+                          color: AnxUiTokens.quietBorder(scheme),
+                          width: 0.7,
                         ),
+                        boxShadow: [
+                          if (!Prefs().eInkMode)
+                            BoxShadow(
+                              color: scheme.shadow.withValues(alpha: 0.1),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                        ],
                       ),
-                      child: BookCover(book: book),
+                      child: ClipRRect(
+                        borderRadius: coverRadius,
+                        child: BookCover(book: book),
+                      ),
                     ),
                   ),
                 );
@@ -134,10 +150,10 @@ class _BookFolderState extends ConsumerState<BookFolder> {
         Widget buildGridPreview() {
           final previewBooks = widget.books.take(4).toList();
           return OutlinedContainer(
-            color: Colors.transparent,
-            outlineColor: Theme.of(context).colorScheme.outlineVariant,
-            padding: const EdgeInsets.all(6),
-            radius: 10,
+            color: scheme.surfaceContainerLow,
+            outlineColor: AnxUiTokens.quietBorder(scheme),
+            padding: const EdgeInsets.all(8),
+            radius: AnxUiTokens.controlRadius,
             child: GridView.builder(
               physics: const NeverScrollableScrollPhysics(),
               shrinkWrap: true,
@@ -173,19 +189,28 @@ class _BookFolderState extends ConsumerState<BookFolder> {
             children: [
               Expanded(
                 child: InkWell(
+                  borderRadius: coverRadius,
                   onTap: () => openFolder(groupName),
                   child: folderPreview,
                 ),
               ),
               SizedBox(
                 height: 50,
-                child: Text(
-                  groupName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(2, 8, 2, 0),
+                    child: Text(
+                      groupName,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                        height: 1.15,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],

@@ -18,6 +18,7 @@ import 'package:anx_reader/utils/get_path/get_temp_dir.dart';
 import 'package:anx_reader/utils/color/hash_color.dart';
 import 'package:anx_reader/utils/platform_utils.dart';
 import 'package:anx_reader/utils/log/common.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/bookshelf/book_bottom_sheet.dart';
 import 'package:anx_reader/widgets/bookshelf/book_folder.dart';
 import 'package:anx_reader/widgets/bookshelf/sync_button.dart';
@@ -108,6 +109,7 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     final tagsAsync = ref.watch(tagListProvider);
 
     Widget buildFilterBar() {
+      final scheme = Theme.of(context).colorScheme;
       final statusChips = [
         _StatusChip(
           label: L10n.of(context).bookshelfFilterFinished,
@@ -339,11 +341,20 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       );
 
       return Container(
-        height: 40,
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 5),
+        constraints: const BoxConstraints(minHeight: 48),
+        margin: const EdgeInsetsDirectional.fromSTEB(16, 0, 16, 8),
+        padding: const EdgeInsetsDirectional.only(start: 8, end: 4),
+        decoration: BoxDecoration(
+          color: AnxUiTokens.raisedSurface(scheme),
+          borderRadius: BorderRadius.circular(AnxUiTokens.controlRadius),
+          border: Border.all(
+            color: AnxUiTokens.quietBorder(scheme),
+            width: 0.6,
+          ),
+        ),
         child: Row(
           children: [
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             Expanded(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -447,14 +458,14 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                                 key: _gridViewKey,
                                 controller: _scrollController,
                                 padding:
-                                    const EdgeInsets.fromLTRB(20, 12, 20, 80),
+                                    const EdgeInsets.fromLTRB(20, 8, 20, 80),
                                 gridDelegate:
                                     SliverGridDelegateWithFixedCrossAxisCount(
                                   crossAxisCount: constraints.maxWidth ~/
                                       Prefs().bookCoverWidth,
                                   childAspectRatio: 1 / 2.1,
-                                  mainAxisSpacing: 30,
-                                  crossAxisSpacing: 20,
+                                  mainAxisSpacing: 24,
+                                  crossAxisSpacing: 16,
                                 ),
                                 children: children,
                               ),
@@ -501,7 +512,10 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                 buildBookshelfBody,
                 if (_dragging)
                   Container(
-                    color: Theme.of(context).colorScheme.surface.withAlpha(90),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .scrim
+                        .withValues(alpha: 0.2),
                     child: Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -509,12 +523,15 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                         children: [
                           Icon(
                             EvaIcons.arrowhead_down_outline,
-                            size: 48,
-                            color: Theme.of(context).colorScheme.onSurface,
+                            size: 42,
+                            color: Theme.of(context).colorScheme.primary,
                           ),
                           Text(
                             L10n.of(context).bookshelfDragging,
-                            style: Theme.of(context).textTheme.titleMedium,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                         ],
                       ),
@@ -530,9 +547,10 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
     PreferredSizeWidget appBar = AppBar(
       forceMaterialTransparency: true,
       title: Container(
-          height: 34,
-          constraints: const BoxConstraints(maxWidth: 400),
+          height: 38,
+          constraints: const BoxConstraints(maxWidth: 460),
           child: InkWell(
+            borderRadius: BorderRadius.circular(AnxUiTokens.controlRadius),
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -541,18 +559,29 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
               );
             },
             child: FilledContainer(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              color: Theme.of(context).colorScheme.surface.withAlpha(80),
+              radius: AnxUiTokens.controlRadius,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              color: AnxUiTokens.raisedSurface(
+                Theme.of(context).colorScheme,
+              ),
               child: Row(
                 children: [
-                  const Icon(Icons.search, color: Colors.grey),
-                  SizedBox(width: 8),
+                  Icon(
+                    Icons.search,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: 20,
+                  ),
+                  SizedBox(width: 10),
                   Expanded(
                     child: Text(L10n.of(context).searchBooksOrNotes,
                         style: Theme.of(context)
                             .textTheme
                             .bodyMedium
-                            ?.copyWith(color: Theme.of(context).hintColor),
+                            ?.copyWith(
+                              color: AnxUiTokens.quietText(
+                                Theme.of(context).colorScheme,
+                              ),
+                            ),
                         overflow: TextOverflow.ellipsis),
                   )
                 ],
@@ -660,16 +689,33 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: FilterChip(
         labelPadding: const EdgeInsets.all(0),
-        padding: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         label: Text(label),
         selected: selected,
         onSelected: (_) => onTap(),
-        backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-        checkmarkColor: Theme.of(context).colorScheme.primary,
+        backgroundColor: scheme.surfaceContainerHighest,
+        selectedColor: scheme.primaryContainer,
+        checkmarkColor: scheme.onPrimaryContainer,
+        labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: selected
+                  ? scheme.onPrimaryContainer
+                  : scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AnxUiTokens.pillRadius),
+        ),
+        side: BorderSide(
+          color: selected
+              ? scheme.primary.withValues(alpha: 0.18)
+              : AnxUiTokens.quietBorder(scheme),
+          width: 0.7,
+        ),
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:anx_reader/config/shared_preference_provider.dart';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/widgets/common/color_picker_sheet.dart';
 import 'package:anx_reader/widgets/delete_confirm.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:anx_reader/utils/color/hash_color.dart';
 
@@ -29,8 +30,10 @@ class TagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final isEink = Prefs().eInkMode;
+    final chipRadius = BorderRadius.circular(AnxUiTokens.pillRadius);
 
     final einkBgColor =
         selected ? theme.colorScheme.secondary : Colors.transparent;
@@ -41,34 +44,33 @@ class TagChip extends StatelessWidget {
 
     final baseColor = _colorForLabel(label);
     final normalBgColor =
-        selected ? baseColor.withAlpha(46) : Colors.transparent;
+        selected ? baseColor.withValues(alpha: 0.18) : Colors.transparent;
     final normalBorderColor =
-        selected ? Colors.transparent : baseColor.withAlpha(102);
-    final normalForeground = selected
-        ? baseColor
-        : Theme.of(context).colorScheme.onSurface.withAlpha(179);
+        selected ? Colors.transparent : baseColor.withValues(alpha: 0.4);
+    final normalForeground =
+        selected ? baseColor : scheme.onSurfaceVariant;
 
     final bgColor = isEink ? einkBgColor : normalBgColor;
     final normalBborderColor = isEink ? einkBorderColor : normalBorderColor;
     final foreground = isEink ? einkForeground : normalForeground;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: chipRadius,
       onTap: onTap,
       onLongPress: onLongPress,
       onSecondaryTap: onLongPress,
       child: Container(
         padding: dense
-            ? const EdgeInsets.symmetric(horizontal: 6, vertical: 2)
-            : const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4)
+            : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: normalBborderColor, width: 1),
+          borderRadius: chipRadius,
+          border: Border.all(color: normalBborderColor, width: 0.8),
         ),
         child: Text(
           '# $label',
-          style: TextStyle(
+          style: theme.textTheme.labelMedium?.copyWith(
             fontWeight: FontWeight.w600,
             color: foreground,
           ),

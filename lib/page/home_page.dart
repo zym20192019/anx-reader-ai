@@ -24,6 +24,7 @@ import 'package:anx_reader/config/shared_preference_provider.dart';
 import 'package:anx_reader/utils/toast/common.dart';
 import 'package:anx_reader/widgets/ai/ai_chat_stream.dart';
 import 'package:anx_reader/widgets/common/container/filled_container.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/settings/about.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_floating_bottom_bar/flutter_floating_bottom_bar.dart';
@@ -223,18 +224,19 @@ class _HomePageState extends ConsumerState<HomePage> {
                   bottom: false,
                   child: FilledContainer(
                     margin: const EdgeInsets.all(16),
-                    color: ElevationOverlay.applySurfaceTint(
-                      Theme.of(context).colorScheme.surface,
-                      Theme.of(context).colorScheme.primary,
-                      3,
+                    color: AnxUiTokens.raisedSurface(
+                      Theme.of(context).colorScheme,
                     ),
-                    radius: 20,
+                    radius: AnxUiTokens.surfaceRadius,
                     child: SafeArea(
                       child: NavigationRail(
                         leading: InkWell(
+                          borderRadius: BorderRadius.circular(
+                            AnxUiTokens.controlRadius,
+                          ),
                           onTap: () => openAboutDialog(),
                           child: Padding(
-                            padding: const EdgeInsets.only(right: 2.0),
+                            padding: const EdgeInsets.all(8),
                             child: Image.asset(
                               width: 32,
                               height: 32,
@@ -276,12 +278,12 @@ class _HomePageState extends ConsumerState<HomePage> {
               barColor: Colors.transparent,
               iconDecoration: BoxDecoration(
                 color: Prefs().autoHideBottomBar
-                    ? Theme.of(context).colorScheme.primary
+                    ? Theme.of(context).colorScheme.primaryContainer
                     : Colors.transparent,
-                borderRadius: BorderRadius.circular(500),
+                borderRadius: BorderRadius.circular(AnxUiTokens.pillRadius),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(32),
+                borderRadius: BorderRadius.circular(AnxUiTokens.surfaceRadius),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
                   child: Container(
@@ -291,7 +293,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                           .colorScheme
                           .surfaceContainer
                           .withAlpha(123),
-                      borderRadius: BorderRadius.circular(32),
+                      borderRadius: BorderRadius.circular(
+                        AnxUiTokens.surfaceRadius,
+                      ),
                       border: Border.all(
                         color: Theme.of(context).colorScheme.outline,
                         width: 0.5,
@@ -299,6 +303,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ),
                     child: BottomNavigationBar(
                       selectedFontSize: 12,
+                      unselectedFontSize: 11,
+                      selectedItemColor: Theme.of(context).colorScheme.onSurface,
+                      unselectedItemColor:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
                       enableFeedback: true,
                       type: BottomNavigationBarType.fixed,
                       landscapeLayout:

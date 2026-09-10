@@ -1,4 +1,5 @@
 import 'package:anx_reader/providers/sync.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/bookshelf/sync_status_bottom_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -44,7 +45,12 @@ class _SyncButtonState extends ConsumerState<SyncButton>
 
     final isSyncing = ref.watch(syncProvider.select((s) => s.isSyncing));
 
+    final scheme = Theme.of(context).colorScheme;
     return IconButton(
+      color: isSyncing ? scheme.primary : scheme.onSurfaceVariant,
+      hoverColor: AnxUiTokens.hoverSurface(scheme),
+      focusColor: AnxUiTokens.hoverSurface(scheme),
+      splashColor: AnxUiTokens.pressedSurface(scheme),
       icon: isSyncing
           ? RepaintBoundary(
               child: RotationTransition(

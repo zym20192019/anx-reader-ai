@@ -26,12 +26,14 @@ class SettingsSection extends AbstractSettingsSection {
 
   Widget buildSectionBody(BuildContext context) {
     final tileList = buildTileList();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     if (title == null) {
       return tileList;
     }
 
-  return Column(
+    return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Padding(
@@ -42,8 +44,11 @@ class SettingsSection extends AbstractSettingsSection {
           end: 20,
         ),
         child: DefaultTextStyle(
-          style: Theme.of(context).textTheme.labelLarge!.copyWith(
-                color: Theme.of(context).colorScheme.primary,
+          style: (theme.textTheme.labelLarge ??
+                  theme.textTheme.bodyMedium ??
+                  const TextStyle())
+              .copyWith(
+                color: scheme.primary,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.3,
               ),

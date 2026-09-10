@@ -3,6 +3,7 @@ import 'package:anx_reader/enums/hint_key.dart';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/utils/toast/common.dart';
 import 'package:anx_reader/widgets/common/container/filled_container.dart';
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:flutter/material.dart';
 
 class HintBanner extends StatefulWidget {
@@ -56,9 +57,8 @@ class _HintBannerState extends State<HintBanner>
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final borderColor = colorScheme.primary;
-    final backgroundColor = colorScheme.primary.withAlpha(30);
+    final scheme = Theme.of(context).colorScheme;
+    final backgroundColor = scheme.primaryContainer.withValues(alpha: 0.62);
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 250),
@@ -66,19 +66,23 @@ class _HintBannerState extends State<HintBanner>
       alignment: Alignment.topCenter,
       child: _visible
           ? FilledContainer(
+              radius: AnxUiTokens.controlRadius,
               margin: widget.margin,
+              padding: widget.padding ??
+                  const EdgeInsets.fromLTRB(12, 12, 32, 12),
               color: backgroundColor,
               child: Stack(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 32, 12),
+                    padding: EdgeInsets.zero,
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         if (widget.icon != null) ...[
                           IconTheme(
-                            data: IconTheme.of(context)
-                                .copyWith(color: borderColor.withAlpha(220)),
+                            data: IconTheme.of(context).copyWith(
+                              color: scheme.onPrimaryContainer,
+                            ),
                             child: widget.icon!,
                           ),
                           const SizedBox(width: 12),
@@ -95,7 +99,7 @@ class _HintBannerState extends State<HintBanner>
                       icon: Icon(
                         Icons.close,
                         size: 18,
-                        color: borderColor.withAlpha(220),
+                        color: scheme.onPrimaryContainer,
                       ),
                       padding: EdgeInsets.zero,
                       constraints:
