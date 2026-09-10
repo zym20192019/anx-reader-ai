@@ -19,6 +19,7 @@ import 'package:anx_reader/providers/book_list.dart';
 import 'package:anx_reader/providers/toc_search.dart';
 import 'package:anx_reader/service/convert_to_epub/txt/convert_from_txt.dart';
 import 'package:anx_reader/service/md5_service.dart';
+import 'package:anx_reader/service/prepare_imported_file.dart';
 import 'package:anx_reader/utils/webView/anx_headless_webview.dart';
 import 'package:anx_reader/utils/env_var.dart';
 import 'package:anx_reader/utils/get_path/get_base_path.dart';
@@ -39,7 +40,7 @@ import 'book_player/book_player_server.dart';
 AnxHeadlessWebView? headlessInAppWebView;
 final allowBookExtensions = ["epub", "mobi", "azw3", "fb2", "txt", "pdf"];
 
-/// import book list and **delete file**
+/// import book list without deleting user-selected TXT sources
 void importBookList(List<File> fileList, BuildContext context, WidgetRef ref) {
   AnxLog.info('importBook fileList: ${fileList.toString()}');
 
@@ -136,9 +137,11 @@ void _showImportDialog(
   List<File> fileList,
   WidgetRef ref,
 ) {
-  // delete unsupported files
+  // Keep selected TXT sources intact; only discard temporary unsupported copies.
   for (var file in unsupportedFiles) {
-    file.deleteSync();
+    if (shouldDeleteImportedInput(file)) {
+      file.deleteSync();
+    }
   }
 
   BuildContext context = navigatorKey.currentContext!;
@@ -339,7 +342,9 @@ void _showImportDialog(
                 onPressed: () {
                   Navigator.pop(context);
                   for (var file in supportedFiles) {
-                    file.deleteSync();
+                    if (shouldDeleteImportedInput(file)) {
+                      file.deleteSync();
+                    }
                   }
                 },
                 child: Text(L10n.of(context).commonCancel),
@@ -383,7 +388,9 @@ void _showImportDialog(
                       // and then deleted in the importBook function
                       if (skipDuplicates) {
                         for (var file in duplicateFiles) {
-                          file.deleteSync();
+                          if (shouldDeleteImportedInput(file)) {
+                            file.deleteSync();
+                          }
                         }
                       }
 
@@ -408,15 +415,24 @@ void _showImportDialog(
 
 Future<void> importBook(File file, WidgetRef ref) async {
   String? md5 = await MD5Service.calculateFileMd5(file.path);
+  final sourceFile = file;
+  final preparedFile = await prepareImportedFile(
+    sourceFile,
+    convertTxt: convertFromTxt,
+  );
 
-  if (file.path.split('.').last == 'txt') {
-    final tempFile = await convertFromTxt(file);
-    file.deleteSync();
-    file = tempFile;
+  try {
+    await getBookMetadata(preparedFile, md5: md5, ref: ref);
+    ref.read(bookListProvider.notifier).refresh();
+  } finally {
+    // The original TXT is user data and must remain available for future
+    // re-conversion. The generated EPUB is removed after saveBook copies it;
+    // this fallback only cleans it up when metadata extraction fails.
+    if (preparedFile.path != sourceFile.path &&
+        await preparedFile.exists()) {
+      await preparedFile.delete();
+    }
   }
-
-  await getBookMetadata(file, md5: md5, ref: ref);
-  ref.read(bookListProvider.notifier).refresh();
 }
 
 Future<void> pushToReadingPage(
@@ -525,9 +541,10 @@ Future<void> saveBook(
   String? dbCoverPath = 'cover/$newBookName';
   // final coverPath = getBasePath(dbCoverPath);
 
+  // The temporary import file is no longer needed after it is copied into
+  // application storage. Await cleanup so callers can safely continue.
   await file.copy(filePath);
-  // remove cached file
-  file.delete();
+  await file.delete();
 
   dbCoverPath = await saveImageToLocal(cover, dbCoverPath);
   if (md5 != null) {
@@ -594,7 +611,7 @@ Future<void> getBookMetadata(
             // base64 cover
             String cover = metadata['cover'] ?? '';
             String description = metadata['description'] ?? '';
-            saveBook(
+            await saveBook(
               file,
               title,
               author,

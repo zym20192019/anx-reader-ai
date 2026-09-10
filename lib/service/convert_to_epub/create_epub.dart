@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:anx_reader/service/convert_to_epub/generate_toc.dart';
 import 'package:anx_reader/service/convert_to_epub/section.dart';
+import 'package:anx_reader/service/convert_to_epub/txt/txt_paragraphs.dart';
 import 'package:anx_reader/utils/get_path/get_temp_dir.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:archive/archive_io.dart';
@@ -104,7 +105,24 @@ Future<File> createEpub(
   final styleFile = File('${oebpsDir.path}/style.css');
   styleFile.createSync();
   styleFile.writeAsStringSync('''body {
+  line-height: 1.8;
+  text-align: start;
+  text-justify: inter-ideograph;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: strict;
+  -webkit-line-break: strict;
+}
 
+p {
+  margin: 0 0 1em;
+  text-indent: 2em;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  break-after: avoid;
+  page-break-after: avoid;
+  line-break: strict;
 }
 ''');
   // xhtml
@@ -122,11 +140,9 @@ Future<File> createEpub(
         ? ''
         : '    <h$level>${_escapeXml(rawTitle)}</h$level>';
 
-    final paragraphLines = content
-        .split('\n')
-        .map((e) => e.trim())
-        .where((line) => line.isNotEmpty)
-        .map((line) => '    <p>${_escapeXml(line)}</p>')
+    final paragraphs = reconstructParagraphs(content);
+    final paragraphLines = paragraphs
+        .map((paragraph) => '    <p>${_escapeXml(paragraph)}</p>')
         .toList();
 
     final bodyBuffer = StringBuffer();
@@ -143,6 +159,7 @@ Future<File> createEpub(
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
   <head>
     <title>${_escapeXml(rawTitle.isEmpty ? titleString : rawTitle)}</title>
+    <link rel="stylesheet" type="text/css" href="../style.css"/>
   </head>
   <body>
 ${bodyContent.isEmpty ? '' : '$bodyContent\n'}
