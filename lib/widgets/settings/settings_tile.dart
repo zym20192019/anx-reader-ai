@@ -1,3 +1,4 @@
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:flutter/material.dart';
 
 abstract class AbstractSettingsTile extends StatelessWidget {
@@ -125,7 +126,8 @@ class AndroidSettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const scaleFactor = 0.6;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     final cantShowAnimation = tileType == SettingsTileType.switchTile
         ? onToggle == null && onPressed == null
@@ -145,7 +147,10 @@ class AndroidSettingsTile extends StatelessWidget {
                     onPressed?.call(context);
                   }
                 },
-          highlightColor: Theme.of(context).listTileTheme.selectedColor,
+          highlightColor: AnxUiTokens.pressedSurface(scheme),
+          hoverColor: AnxUiTokens.hoverSurface(scheme),
+          splashColor: AnxUiTokens.pressedSurface(scheme),
+          borderRadius: BorderRadius.circular(AnxUiTokens.controlRadius),
           child: Row(
             children: [
               if (leading != null)
@@ -154,30 +159,24 @@ class AndroidSettingsTile extends StatelessWidget {
                   child: IconTheme(
                     data: IconTheme.of(context).copyWith(
                       color: enabled
-                          ? Theme.of(context).iconTheme.color
-                          : Theme.of(context).disabledColor,
+                          ? scheme.onSurfaceVariant
+                          : theme.disabledColor,
                     ),
                     child: leading!,
                   ),
                 ),
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsetsDirectional.only(
-                    start: 10,
-                    end: 8,
-                    bottom: 19 * scaleFactor,
-                    top: 19 * scaleFactor,
-                  ),
+                  padding: AnxUiTokens.settingTilePadding,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       DefaultTextStyle(
-                        style: TextStyle(
-                          color: enabled
-                              ? Theme.of(context).textTheme.bodyLarge!.color!
-                              : Theme.of(context).disabledColor,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w400,
+                        style: (theme.textTheme.bodyLarge ??
+                                const TextStyle())
+                            .copyWith(
+                          color: enabled ? scheme.onSurface : theme.disabledColor,
+                          fontWeight: FontWeight.w600,
                         ),
                         child: title ?? Container(),
                       ),
@@ -185,13 +184,12 @@ class AndroidSettingsTile extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: 4.0),
                           child: DefaultTextStyle(
-                            style: TextStyle(
+                            style: (theme.textTheme.bodySmall ??
+                                    const TextStyle())
+                                .copyWith(
                               color: enabled
-                                  ? Theme.of(context)
-                                      .textTheme
-                                      .bodySmall!
-                                      .color!
-                                  : Theme.of(context).disabledColor,
+                                  ? scheme.onSurfaceVariant
+                                  : theme.disabledColor,
                             ),
                             child: value!,
                           ),
@@ -200,13 +198,12 @@ class AndroidSettingsTile extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: 4.0),
                           child: DefaultTextStyle(
-                            style: TextStyle(
+                            style: (theme.textTheme.bodySmall ??
+                                    const TextStyle())
+                                .copyWith(
                               color: enabled
-                                  ? Theme.of(context)
-                                      .textTheme
-                                      .bodySmall!
-                                      .color!
-                                  : Theme.of(context).disabledColor,
+                                  ? scheme.onSurfaceVariant
+                                  : theme.disabledColor,
                             ),
                             child: description!,
                           ),
@@ -248,9 +245,7 @@ class AndroidSettingsTile extends StatelessWidget {
                   child: trailing ??
                       Icon(
                         Icons.chevron_right_sharp,
-                        color: enabled
-                            ? Theme.of(context).iconTheme.color
-                            : Theme.of(context).disabledColor,
+                        color: enabled ? scheme.onSurfaceVariant : theme.disabledColor,
                       ),
                 )
               else if (trailing != null)

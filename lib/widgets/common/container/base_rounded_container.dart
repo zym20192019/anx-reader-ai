@@ -1,3 +1,4 @@
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:flutter/material.dart';
 
 abstract class BaseRoundedContainer extends StatelessWidget {
@@ -14,7 +15,7 @@ abstract class BaseRoundedContainer extends StatelessWidget {
     this.animationCurve = Curves.easeInOut,
   });
 
-  static const double _defaultRadius = 30;
+  static const double _defaultRadius = AnxUiTokens.surfaceRadius;
 
   final Widget child;
   final double? width;

@@ -1,3 +1,4 @@
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/common/container/base_rounded_container.dart';
 import 'package:flutter/material.dart';
 
@@ -25,12 +26,14 @@ class OutlinedContainer extends BaseRoundedContainer {
     BuildContext context,
     BorderRadiusGeometry borderRadius,
   ) {
+    final scheme = Theme.of(context).colorScheme;
     return buildShapeDecoration(
-      color: color ?? Theme.of(context).colorScheme.surface,
+      color: color ?? scheme.surface,
       borderSide: BorderSide(
-          color: outlineColor ?? Theme.of(context).colorScheme.outline,
-          width: 1,
-          strokeAlign: BorderSide.strokeAlignOutside),
+        color: outlineColor ?? AnxUiTokens.quietBorder(scheme),
+        width: 0.8,
+        strokeAlign: BorderSide.strokeAlignOutside,
+      ),
       borderRadius: borderRadius,
     );
   }

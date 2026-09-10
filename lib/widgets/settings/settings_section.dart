@@ -1,3 +1,4 @@
+import 'package:anx_reader/theme/anx_ui_tokens.dart';
 import 'package:anx_reader/widgets/common/container/filled_container.dart';
 import 'package:anx_reader/widgets/settings/settings_tile.dart';
 import 'package:flutter/material.dart';
@@ -24,39 +25,41 @@ class SettingsSection extends AbstractSettingsSection {
   }
 
   Widget buildSectionBody(BuildContext context) {
-    const scaleFactor = 0.5;
     final tileList = buildTileList();
 
     if (title == null) {
       return tileList;
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsetsDirectional.only(
-            top: 24 * scaleFactor,
-            bottom: 10 * scaleFactor,
-            start: 24,
-            end: 24,
-          ),
-          child: DefaultTextStyle(
-            style: TextStyle(
-              color: Theme.of(context).primaryColor,
-            ),
-            child: title!,
-          ),
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsetsDirectional.only(
+          top: 12,
+          bottom: 8,
+          start: 20,
+          end: 20,
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: FilledContainer(
-            padding: EdgeInsetsGeometry.zero,
-            child: tileList,
-          ),
+        child: DefaultTextStyle(
+          style: Theme.of(context).textTheme.labelLarge!.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
+          child: title!,
         ),
-      ],
-    );
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: FilledContainer(
+          radius: AnxUiTokens.surfaceRadius,
+          padding: EdgeInsetsGeometry.zero,
+          child: tileList,
+        ),
+      ),
+    ],
+  );
   }
 
   Widget buildTileList() {
