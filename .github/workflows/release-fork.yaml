@@ -1,0 +1,206 @@
+name: Fork Cloud Prerelease
+
+on:
+  push:
+    tags:
+      - 'anx-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (must use the anx-v<version> namespace)'
+        required: true
+        type: string
+        default: 'anx-v1.14.1-beta.1'
+      version:
+        description: 'Release version without the anx-v prefix'
+        required: true
+        type: string
+        default: '1.14.1-beta.1'
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.35.3'
+
+jobs:
+  build-android:
+    name: Build Android universal APK
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release_meta.outputs.tag }}
+      version: ${{ steps.release_meta.outputs.version }}
+    env:
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          # A manual run builds the selected branch; a tag push builds that tag.
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve and validate release metadata
+        id: release_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+            version="$INPUT_VERSION"
+          else
+            tag="$GITHUB_REF_NAME"
+            version="${tag#anx-v}"
+          fi
+
+          if [[ ! "$tag" =~ ^anx-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid release tag: $tag"
+            echo 'Expected anx-v<semver>, for example anx-v1.14.1-beta.1.'
+            exit 1
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid release version: $version"
+            exit 1
+          fi
+          if [[ "$tag" != "anx-v$version" ]]; then
+            echo "::error::Tag and version do not match: $tag / $version"
+            exit 1
+          fi
+
+          {
+            printf 'tag=%s\n' "$tag"
+            printf 'version=%s\n' "$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify Android fork identity
+        run: python3 tool/check_android_fork_identity.py
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Generate localization and source files
+        run: |
+          flutter gen-l10n
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+          cache: gradle
+
+      - name: Generate ephemeral Android signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          keystore_path="$RUNNER_TEMP/anx-reader-ephemeral.jks"
+          keystore_password="$(openssl rand -hex 32)"
+          key_alias='anx-reader-ephemeral'
+
+          keytool -genkeypair \
+            -v \
+            -keystore "$keystore_path" \
+            -storetype JKS \
+            -storepass "$keystore_password" \
+            -keypass "$keystore_password" \
+            -alias "$key_alias" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 365 \
+            -dname 'CN=Anx Reader CI, OU=CI, O=Anx Reader, L=Unknown, ST=Unknown, C=US' \
+            -noprompt
+
+          chmod 600 "$keystore_path"
+          {
+            printf 'storePassword=%s\n' "$keystore_password"
+            printf 'keyPassword=%s\n' "$keystore_password"
+            printf 'keyAlias=%s\n' "$key_alias"
+            printf 'storeFile=%s\n' "$keystore_path"
+          } > android/key.properties
+          chmod 600 android/key.properties
+
+      - name: Build Android universal release APK
+        env:
+          RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          flutter build apk --release --build-name "$RELEASE_VERSION"
+          apk_path='build/app/outputs/flutter-apk/app-release.apk'
+          apk_name="Anx-Reader-android-${RELEASE_VERSION}-universal.apk"
+          test -s "$apk_path"
+
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$sdk_root"
+          aapt_path="$(find "$sdk_root/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$aapt_path"
+          badging="$("$aapt_path" dump badging "$apk_path")"
+          grep -F "package: name='com.zym20192019.anxreader'" <<< "$badging"
+          grep -F "application-label:'Anx Reader AI'" <<< "$badging"
+
+          mv "$apk_path" "build/app/outputs/flutter-apk/$apk_name"
+
+      - name: Upload Android release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anx-reader-android-${{ steps.release_meta.outputs.version }}
+          path: build/app/outputs/flutter-apk/Anx-Reader-android-${{ steps.release_meta.outputs.version }}-universal.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  create-release:
+    name: Create GitHub prerelease
+    needs: build-android
+    if: ${{ needs.build-android.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Android release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: anx-reader-android-${{ needs.build-android.outputs.version }}
+          path: artifacts
+
+      - name: Verify release payload
+        env:
+          RELEASE_VERSION: ${{ needs.build-android.outputs.version }}
+        run: |
+          set -euo pipefail
+          apk="artifacts/Anx-Reader-android-${RELEASE_VERSION}-universal.apk"
+          test -s "$apk"
+          printf 'Release payload:\n'
+          find artifacts -maxdepth 1 -type f -printf '%f\n' | sort
+
+      - name: Create GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build-android.outputs.tag }}
+          # For workflow_dispatch, create the requested tag at the selected commit
+          # if it does not already exist. On a tag push this is ignored.
+          target_commitish: ${{ github.sha }}
+          name: Anx Reader ${{ needs.build-android.outputs.version }}
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            Fork-safe cloud prerelease.
+
+            This Fork uses the independent Android application id
+            `com.zym20192019.anxreader` and can coexist with the official Anx Reader app.
+
+            Android is signed with a temporary CI-only keystore; this APK is not
+            suitable for upgrades that require the upstream production signing key.
+          files: artifacts/*.apk
+          fail_on_unmatched_files: true
