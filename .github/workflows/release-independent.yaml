@@ -151,7 +151,7 @@ jobs:
           $iss = Get-Content 'scripts/compile_windows_setup-inno.iss' -Raw
           $iss = '#define MyAppVersion "' + $version + '"' + [Environment]::NewLine + $iss
           Set-Content -Path 'scripts/compile_windows_setup-inno.iss' -Value $iss -Encoding UTF8
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' -ns 'scripts/compile_windows_setup-inno.iss'
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' 'scripts/compile_windows_setup-inno.iss'
           if (!(Test-Path 'D:\inno-result\app.exe')) {
             throw 'Expected unsigned Windows installer was not produced.'
           }
