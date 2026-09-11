@@ -4,6 +4,7 @@ import 'package:anx_reader/service/convert_to_epub/epub_artifact_paths.dart';
 import 'package:anx_reader/service/convert_to_epub/generate_toc.dart';
 import 'package:anx_reader/service/convert_to_epub/section.dart';
 import 'package:anx_reader/service/convert_to_epub/txt/txt_paragraphs.dart';
+import 'package:anx_reader/service/convert_to_epub/txt/txt_title_helper.dart';
 import 'package:anx_reader/utils/get_path/get_temp_dir.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:archive/archive_io.dart';
@@ -28,7 +29,11 @@ Future<File> createEpub(
 }) async {
   // create epub
   final cacheDir = tempDir ?? await getAnxTempDir();
-  final paths = generateEpubArtifactPaths(cacheDir, uniqueId: uniqueId);
+  final paths = generateEpubArtifactPaths(
+    cacheDir,
+    uniqueId: uniqueId,
+    safeTitle: toSafePathComponent(titleString),
+  );
   final epubDir = paths.workingDir;
   final zipFile = paths.outputFile;
 

@@ -13,6 +13,58 @@ String _escapeXml(String value) {
 
 String _indent(int level) => '  ' * (level + 1);
 
+/// Formats a fallback TOC title from section content.
+///
+/// Takes the first non-empty line of [content], collapses consecutive whitespace
+/// (including ideographic fullwidth spaces), trims, and truncates to [maxLength]
+/// Unicode characters (appending '...' if truncated).
+///
+/// Returns 'Section ${index + 1}' if the content contains no non-empty text.
+String formatTocFallbackTitle(
+  String content, {
+  int? index,
+  int maxLength = 30,
+}) {
+  final firstLine = content.split('\n').firstWhere(
+        (line) => line.trim().isNotEmpty,
+        orElse: () => '',
+      );
+
+  final normalized = firstLine.replaceAll(RegExp(r'[\s\u3000]+'), ' ').trim();
+  if (normalized.isEmpty) {
+    return 'Section ${index != null ? index + 1 : 1}';
+  }
+
+  final runes = normalized.runes.toList();
+  if (runes.length <= maxLength) {
+    return normalized;
+  }
+
+  return '${String.fromCharCodes(runes.take(maxLength))}...';
+}
+
+/// Resolves the title for a TOC entry.
+///
+/// If [section.title] is present and non-empty, it is used without truncation
+/// to preserve authentic chapter titles.
+/// If [section.title] is empty or whitespace-only, a fallback title is derived
+/// from [section.content] via [formatTocFallbackTitle].
+String resolveTocTitle(
+  Section section,
+  int index, {
+  int maxLength = 30,
+}) {
+  final explicitTitle = section.title.trim();
+  if (explicitTitle.isNotEmpty) {
+    return explicitTitle;
+  }
+  return formatTocFallbackTitle(
+    section.content,
+    index: index,
+    maxLength: maxLength,
+  );
+}
+
 String generateNestedToc(List<Section> sections) {
   if (sections.isEmpty) {
     return '';
@@ -20,14 +72,7 @@ String generateNestedToc(List<Section> sections) {
 
   final tocItems = List.generate(sections.length, (index) {
     final section = sections[index];
-    final fallbackTitle = section.content.trim().split('\n').firstWhere(
-          (line) => line.trim().isNotEmpty,
-          orElse: () => 'Section ${index + 1}',
-        );
-    final title = section.title.trim().isNotEmpty
-        ? section.title.trim()
-        : fallbackTitle.trim();
-
+    final title = resolveTocTitle(section, index);
     final level = section.level < 1 ? 1 : section.level;
 
     return _TocItem(title: title, index: index, level: level);

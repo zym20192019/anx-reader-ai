@@ -5,6 +5,7 @@ import 'package:anx_reader/config/shared_preference_provider.dart';
 import 'package:anx_reader/models/chapter_split_presets.dart';
 import 'package:anx_reader/service/convert_to_epub/create_epub.dart';
 import 'package:anx_reader/service/convert_to_epub/section.dart';
+import 'package:anx_reader/service/convert_to_epub/txt/txt_title_helper.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:charset/charset.dart';
 import 'package:path/path.dart' as path;
@@ -121,10 +122,8 @@ Future<File> convertFromTxt(File file) async {
   // Use path.basename to extract filename cross-platform (handles both / and \)
   var filename = path.basenameWithoutExtension(file.path);
 
-  final titleString =
-      RegExp(r'(?<=《)[^》]+').firstMatch(filename)?.group(0) ?? filename;
-  final authorString =
-      RegExp(r'(?<=作者：).*').firstMatch(filename)?.group(0) ?? 'Unknown';
+  final titleString = extractDisplayTitle(filename);
+  final authorString = extractAuthor(filename);
 
   AnxLog.info('convert from txt. title: $titleString, author: $authorString');
 
@@ -152,14 +151,14 @@ Future<File> convertFromTxt(File file) async {
   List<Section> sections;
   if (matches.isEmpty) {
     AnxLog.info('Convert: No chapters matched, using fallback chunking');
-    sections = _fallbackChunking(filename, content);
+    sections = _fallbackChunking(titleString, content);
     AnxLog.info('Convert: Created ${sections.length} sections via fallback');
   } else {
     AnxLog.info('Convert: Building ${matches.length} sections from matches');
     sections = _buildSectionsFromMatches(
       content: content,
       matches: matches,
-      fallbackTitle: filename,
+      fallbackTitle: titleString,
     );
     AnxLog.info('Convert: Created ${sections.length} sections');
   }

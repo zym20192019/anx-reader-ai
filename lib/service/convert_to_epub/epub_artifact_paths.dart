@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:anx_reader/service/convert_to_epub/txt/txt_title_helper.dart';
 import 'package:uuid/uuid.dart';
 
 /// Resolved temporary paths for an EPUB conversion task.
@@ -18,16 +19,28 @@ class EpubArtifactPaths {
 
 /// Generates unique, isolated filesystem paths for EPUB conversion.
 ///
-/// Uses [uniqueId] (defaulting to UUID v4) instead of book title so concurrent
-/// conversions, batch runs, or duplicate titles never collide.
+/// Uses [uniqueId] (defaulting to UUID v4) so concurrent conversions, batch runs,
+/// or duplicate titles never collide.
+///
+/// If [safeTitle] is provided, it is sanitized via [toSafePathComponent] and used
+/// only as a human-readable prefix in the final [outputFile] name (`${safeTitle}_$id.epub`).
+/// The temporary working directory [workingDir] remains strictly UUID-isolated
+/// (`epub_build_$id`) to ensure filesystem safety and avoid nested directory bugs.
 EpubArtifactPaths generateEpubArtifactPaths(
   Directory baseDir, {
   String? uniqueId,
+  String? safeTitle,
 }) {
   final id = uniqueId ?? const Uuid().v4();
+  final sanitized = (safeTitle != null && safeTitle.trim().isNotEmpty)
+      ? toSafePathComponent(safeTitle)
+      : null;
+  final fileName = (sanitized != null && sanitized.isNotEmpty)
+      ? '${sanitized}_$id.epub'
+      : '$id.epub';
   return EpubArtifactPaths(
     workingDir: Directory('${baseDir.path}/epub_build_$id'),
-    outputFile: File('${baseDir.path}/$id.epub'),
+    outputFile: File('${baseDir.path}/$fileName'),
   );
 }
 

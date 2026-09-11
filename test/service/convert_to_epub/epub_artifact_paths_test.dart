@@ -54,6 +54,40 @@ void main() {
       );
     });
 
+    test('incorporates sanitized safeTitle into outputFile while keeping workingDir strictly UUID-based', () {
+      final paths = generateEpubArtifactPaths(
+        tempBaseDir,
+        uniqueId: 'custom-unique-5678',
+        safeTitle: '三体：黑暗森林',
+      );
+
+      // workingDir must remain purely UUID and NOT contain the title
+      expect(
+        paths.workingDir.path,
+        equals('${tempBaseDir.path}/epub_build_custom-unique-5678'),
+      );
+      expect(paths.workingDir.path.contains('三体'), isFalse);
+
+      // outputFile incorporates sanitized safeTitle and uniqueId
+      expect(
+        paths.outputFile.path,
+        equals('${tempBaseDir.path}/三体_黑暗森林_custom-unique-5678.epub'),
+      );
+    });
+
+    test('falls back to default safe name when safeTitle is entirely invalid path characters', () {
+      final paths = generateEpubArtifactPaths(
+        tempBaseDir,
+        uniqueId: 'custom-unique-9999',
+        safeTitle: ':::???///',
+      );
+
+      expect(
+        paths.outputFile.path,
+        equals('${tempBaseDir.path}/book_custom-unique-9999.epub'),
+      );
+    });
+
     test('cleanupEpubArtifacts on success deletes working dir and preserves output file', () {
       final paths = generateEpubArtifactPaths(tempBaseDir);
       paths.workingDir.createSync(recursive: true);
