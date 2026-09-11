@@ -265,8 +265,8 @@ void main() {
           getTempDir: () async => tempDownloadDir,
         );
 
-        expect(
-          () async => await manager.downloadAndInstall(maliciousModel),
+        await expectLater(
+          manager.downloadAndInstall(maliciousModel),
           throwsA(isA<ModelSecurityException>()),
         );
 
@@ -321,8 +321,8 @@ void main() {
         getTempDir: () async => tempDownloadDir,
       );
 
-      expect(
-        () async => await manager.downloadAndInstall(testModel),
+      await expectLater(
+        manager.downloadAndInstall(testModel),
         throwsA(isA<ModelChecksumException>()),
       );
 
