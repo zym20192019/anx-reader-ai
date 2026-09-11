@@ -226,6 +226,7 @@ class LocalTts extends BaseTts {
   Future<void> _startPrefetcher() async {
     if (_isPrefetcherRunning) return;
     _isPrefetcherRunning = true;
+    _shouldStop = false;
     _prefetcherCompleter = Completer<void>();
 
     try {
@@ -322,15 +323,24 @@ class LocalTts extends BaseTts {
     _shouldStop = true;
     updateTtsState(TtsStateEnum.stopped);
 
-    if (_playbackCompleter != null && !_playbackCompleter!.isCompleted) {
-      _playbackCompleter!.complete();
+    try {
+      if (_playbackCompleter != null && !_playbackCompleter!.isCompleted) {
+        _playbackCompleter!.complete();
+      }
+
+      // Wait for the background prefetcher loop to finish if still active
+      if (_prefetcherCompleter != null) {
+        try {
+          await _prefetcherCompleter!.future
+              .timeout(const Duration(seconds: 1), onTimeout: () {});
+        } catch (_) {}
+      }
+
+      await _disposePlayer();
+    } finally {
+      _resetBuffer();
+      updateTtsState(TtsStateEnum.stopped);
     }
-
-    // Wait for the background prefetcher loop to finish if still active
-    await _prefetcherCompleter?.future;
-
-    await _disposePlayer();
-    _resetBuffer();
   }
 
   /// Consumer: Sequentially consumes buffered segments and plays audio.
@@ -338,6 +348,7 @@ class LocalTts extends BaseTts {
   Future<void> _startPlayer() async {
     if (_isPlayerRunning) return;
     _isPlayerRunning = true;
+    _shouldStop = false;
     _playerCompleter = Completer<void>();
 
     try {
@@ -398,6 +409,9 @@ class LocalTts extends BaseTts {
       await _teardownOnEof();
     } finally {
       _isPlayerRunning = false;
+      if (ttsStateNotifier.value == TtsStateEnum.playing) {
+        updateTtsState(TtsStateEnum.stopped);
+      }
       if (_playerCompleter != null && !_playerCompleter!.isCompleted) {
         _playerCompleter!.complete();
       }
@@ -611,13 +625,25 @@ class LocalTts extends BaseTts {
   Completer<void>? get activeStopCompleterForTesting => _activeStopCompleter;
 
   @visibleForTesting
+  bool get shouldStopForTesting => _shouldStop;
+
+  @visibleForTesting
+  set shouldStopForTesting(bool value) => _shouldStop = value;
+
+  @visibleForTesting
   Future<void> teardownOnEofForTesting() => _teardownOnEof();
 
   @visibleForTesting
-  Future<void> startPlayerForTesting() => _startPlayer();
+  Future<void> startPlayerForTesting() {
+    _shouldStop = false;
+    return _startPlayer();
+  }
 
   @visibleForTesting
-  Future<void> startPrefetcherForTesting() => _startPrefetcher();
+  Future<void> startPrefetcherForTesting() {
+    _shouldStop = false;
+    return _startPrefetcher();
+  }
 
   @visibleForTesting
   void resetBufferForTesting() => _resetBuffer();

@@ -3,17 +3,30 @@ import 'package:anx_reader/service/tts/base_tts.dart';
 import 'package:anx_reader/service/tts/local_tts/local_tts.dart';
 import 'package:anx_reader/service/tts/local_tts/local_tts_provider.dart';
 import 'package:anx_reader/service/tts/models/tts_sentence.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   setUp(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
     final localTts = LocalTts();
     await localTts.stop();
+    localTts.isInit = false;
+    localTts.getHereFunction = null;
+    localTts.getNextTextFunction = null;
+    localTts.getPrevTextFunction = null;
+    localTts.hasReachedEofForTesting = false;
   });
 
   tearDown(() async {
     final localTts = LocalTts();
     await localTts.stop();
+    localTts.isInit = false;
+    localTts.getHereFunction = null;
+    localTts.getNextTextFunction = null;
+    localTts.getPrevTextFunction = null;
+    localTts.hasReachedEofForTesting = false;
   });
 
   group('LocalTts Sentence Parsing & Contract', () {
@@ -40,6 +53,9 @@ void main() {
     test('speak throws descriptive StateError when model is uninstalled and not initialized', () async {
       final localTts = LocalTts();
       localTts.isInit = false;
+      localTts.getHereFunction = null;
+      localTts.getNextTextFunction = null;
+      localTts.getPrevTextFunction = null;
 
       await expectLater(
         localTts.speak(),
@@ -160,6 +176,7 @@ void main() {
       localTts.updateTtsState(TtsStateEnum.playing);
       final playerFuture = localTts.startPlayerForTesting();
 
+      await Future<void>.delayed(const Duration(milliseconds: 10));
       expect(localTts.isPlayerRunningForTesting, isTrue);
 
       // Trigger external stop

@@ -342,16 +342,19 @@ void main() {
       dio.interceptors.add(InterceptorsWrapper(
         onRequest: (options, handler) async {
           // Emulate slow stream download that can be cancelled
-          final controller = StreamController<List<int>>();
+          final controller = StreamController<Uint8List>();
+          controller.add(Uint8List.fromList([1, 2, 3, 4]));
           options.cancelToken?.whenCancel.then((_) {
-            controller.addError(
-              DioException(
-                requestOptions: options,
-                type: DioExceptionType.cancel,
-                error: 'User cancelled download',
-              ),
-            );
-            controller.close();
+            if (!controller.isClosed) {
+              controller.addError(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.cancel,
+                  error: 'User cancelled download',
+                ),
+              );
+              controller.close();
+            }
           });
 
           handler.resolve(Response(
