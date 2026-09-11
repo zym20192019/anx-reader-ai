@@ -24,8 +24,18 @@ class MD5Service {
     }
   }
 
+  static Future<Book?> checkDuplicateBySourceMd5(String sourceMd5) async {
+    final book = await bookDao.getBookBySourceMd5(sourceMd5);
+    if (book != null) {
+      return book;
+    }
+    // Fallback: for books imported before source_md5 existed (v7 or earlier),
+    // only check legacy records where source_md5 is null/empty.
+    return await bookDao.getLegacyBookByFileMd5(sourceMd5);
+  }
+
   static Future<Book?> checkDuplicateByMd5(String md5) async {
-    return await bookDao.getBookByMd5(md5);
+    return await checkDuplicateBySourceMd5(md5);
   }
 
   static Future<MD5CalculationResult> batchCalculateMd5(List<Book> books,
@@ -99,7 +109,7 @@ class MD5Service {
       Book? duplicateBook;
 
       if (md5 != null) {
-        duplicateBook = await checkDuplicateByMd5(md5);
+        duplicateBook = await checkDuplicateBySourceMd5(md5);
       }
 
       results.add(ImportFileCheck(

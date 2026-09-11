@@ -12,7 +12,10 @@ class Book {
   String? description;
   double rating;
   int groupId;
-  String? md5;
+  String? fileMd5;
+  String? sourceMd5;
+  String? get md5 => fileMd5;
+  set md5(String? val) => fileMd5 = val;
   DateTime createTime;
   DateTime updateTime;
 
@@ -28,9 +31,12 @@ class Book {
       this.description,
       required this.rating,
       this.groupId = 0,
-      this.md5,
+      String? md5,
+      String? fileMd5,
+      this.sourceMd5,
       required this.createTime,
-      required this.updateTime});
+      required this.updateTime})
+      : fileMd5 = fileMd5 ?? md5;
 
   factory Book.mock() {
     return Book(
@@ -68,7 +74,8 @@ class Book {
       'description': description,
       'rating': rating,
       'group_id': groupId,
-      'file_md5': md5,
+      'file_md5': fileMd5,
+      'source_md5': sourceMd5,
       'create_time': createTime.toIso8601String(),
       'update_time': updateTime.toIso8601String(),
     };
@@ -87,6 +94,8 @@ class Book {
     double? rating,
     int? groupId,
     String? md5,
+    String? fileMd5,
+    String? sourceMd5,
     DateTime? createTime,
     DateTime? updateTime,
   }) {
@@ -102,7 +111,8 @@ class Book {
       description: description ?? this.description,
       rating: rating ?? this.rating,
       groupId: groupId ?? this.groupId,
-      md5: md5 ?? this.md5,
+      fileMd5: fileMd5 ?? md5 ?? this.fileMd5,
+      sourceMd5: sourceMd5 ?? this.sourceMd5,
       createTime: createTime ?? this.createTime,
       updateTime: updateTime ?? this.updateTime,
     );
@@ -121,7 +131,8 @@ class Book {
       description: map['description'] as String?,
       rating: (map['rating'] as num?)?.toDouble() ?? 0.0,
       groupId: map['group_id'] as int? ?? 0,
-      md5: map['file_md5'] as String?,
+      fileMd5: map['file_md5'] as String?,
+      sourceMd5: map['source_md5'] as String?,
       createTime: DateTime.parse(map['create_time'] as String),
       updateTime: DateTime.parse(map['update_time'] as String),
     );

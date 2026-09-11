@@ -39,19 +39,8 @@ class BookBottomSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     Future<void> handleDelete(BuildContext context) async {
       Navigator.pop(context);
-      await bookDao.updateBook(Book(
-        id: book.id,
-        title: book.title,
-        coverPath: book.coverPath,
-        filePath: book.filePath,
-        lastReadPosition: book.lastReadPosition,
-        readingPercentage: book.readingPercentage,
-        author: book.author,
+      await bookDao.updateBook(book.copyWith(
         isDeleted: true,
-        description: book.description,
-        rating: book.rating,
-        md5: book.md5,
-        createTime: book.createTime,
         updateTime: DateTime.now(),
       ));
       ref.read(bookListProvider.notifier).refresh();
@@ -201,11 +190,15 @@ class BookBottomSheet extends ConsumerWidget {
       if (confirm != true) return;
 
       try {
-        String extension = p.extension(newFile.name);
+        final rawExtension = p.extension(newFile.name).toLowerCase();
+        final isTxt = rawExtension == '.txt';
+        final newSourceMd5 = await MD5Service.calculateFileMd5(newFileObj.path);
+
         File fileToProcess = newFileObj;
+        String extension = p.extension(newFile.name);
 
         // Convert TXT to EPUB if needed
-        if (extension.toLowerCase() == '.txt') {
+        if (isTxt) {
           fileToProcess = await convertFromTxt(newFileObj);
           extension = '.epub';
         }
@@ -224,15 +217,24 @@ class BookBottomSheet extends ConsumerWidget {
         // Copy new file
         await fileToProcess.copy(newDestPath);
 
-        // Calculate MD5
-        String? newMd5 = await MD5Service.calculateFileMd5(newDestPath);
+        // Calculate MD5 of destination file
+        String? newFileMd5 = await MD5Service.calculateFileMd5(newDestPath);
+
+        final md5Resolution = resolveBookMd5OnReplace(
+          isTxt: isTxt,
+          newSourceFileMd5: newSourceMd5,
+          newProcessedFileMd5: newFileMd5,
+        );
 
         // Update DB
-        await bookDao.updateBook(book.copyWith(
+        final updatedBook = book.copyWith(
           filePath: newRelativePath,
-          md5: newMd5,
+          fileMd5: md5Resolution.fileMd5,
+          sourceMd5: md5Resolution.sourceMd5,
           updateTime: DateTime.now(),
-        ));
+        );
+        updatedBook.sourceMd5 = md5Resolution.sourceMd5;
+        await bookDao.updateBook(updatedBook);
 
         // Delete old file if path is different
         if (book.fileFullPath != newDestPath) {

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:anx_reader/config/shared_preference_provider.dart';
+import 'package:anx_reader/service/book_player/temp_file_manager.dart';
 import 'package:anx_reader/utils/get_path/get_base_path.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +19,9 @@ class Server {
   Server._internal();
 
   HttpServer? _server;
+  final TempFileManager _tempFileManager = TempFileManager();
+
+  TempFileManager get tempFileManager => _tempFileManager;
 
   Future start() async {
     if (_server != null) {
@@ -51,6 +55,7 @@ class Server {
   }
 
   Future stop() async {
+    _tempFileManager.clear();
     if (_server == null) {
       return;
     }
@@ -64,28 +69,39 @@ class Server {
     return await rootBundle.loadString(path);
   }
 
-  File? _tempFile;
-  String? _tempFileName;
-
-  String setTempFile(File file) {
-    _tempFile = file;
-    _tempFileName =
-        '${DateTime.now().millisecondsSinceEpoch}.${file.path.split('.').last}';
-    return _tempFileName!;
+  String setTempFile(File file, {String? token}) {
+    return _tempFileManager.setTempFile(file, token: token);
   }
+
+  bool releaseTempFile(String token) {
+    return _tempFileManager.releaseTempFile(token);
+  }
+
+  void clearTempFiles() {
+    _tempFileManager.clear();
+  }
+
+  bool hasTempFile(String token) {
+    return _tempFileManager.has(token);
+  }
+
+  int get tempFileCount => _tempFileManager.count;
+
+  shelf.Response? handleTempFileRequest(shelf.Request request) =>
+      _tempFileManager.handleRequest(request);
+
+  Future<shelf.Response> handleRequest(shelf.Request request) =>
+      _handleRequests(request);
+
+  shelf.Handler get handler => _handleRequests;
 
   Future<shelf.Response> _handleRequests(shelf.Request request) async {
     final uriPath = request.requestedUri.path;
     AnxLog.info('Server: Request for $uriPath');
 
-    if (_tempFileName != null && uriPath == "/${_tempFileName!}") {
-      return shelf.Response.ok(
-        _tempFile?.openRead(),
-        headers: {
-          'Content-Type': 'application/epub+zip',
-          'Access-Control-Allow-Origin': '*',
-        },
-      );
+    final tempResponse = _tempFileManager.handleRequest(request);
+    if (tempResponse != null) {
+      return tempResponse;
     }
 
     if (uriPath.startsWith('/book/')) {
@@ -149,12 +165,7 @@ class Server {
     } else if (uriPath.startsWith('/bgimg/')) {
       return await _handleBgimgRequest(request);
     } else {
-      return shelf.Response.ok(
-        'Request for "${request.url}"',
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-        },
-      );
+      return shelf.Response.notFound('Not found');
     }
   }
 

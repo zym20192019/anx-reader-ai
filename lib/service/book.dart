@@ -450,12 +450,24 @@ Future<void> importBook(
   final sourceFile = file;
   File? preparedFile;
   try {
-    final md5 = await MD5Service.calculateFileMd5(file.path);
+    final sourceMd5 = await MD5Service.calculateFileMd5(sourceFile.path);
     preparedFile = await prepareImportedFile(
       sourceFile,
       convertTxt: convertFromTxt,
     );
-    await getBookMetadata(preparedFile, md5: md5, ref: ref);
+    final String? fileMd5;
+    if (preparedFile.path == sourceFile.path) {
+      fileMd5 = sourceMd5;
+    } else {
+      fileMd5 = await MD5Service.calculateFileMd5(preparedFile.path);
+    }
+    await getBookMetadata(
+      preparedFile,
+      md5: fileMd5,
+      fileMd5: fileMd5,
+      sourceMd5: sourceMd5,
+      ref: ref,
+    );
     ref.read(bookListProvider.notifier).refresh();
   } finally {
     if (preparedFile != null &&
@@ -543,7 +555,76 @@ void updateBookRating(Book book, double rating) {
 
 Future<void> resetBookCover(Book book) async {
   final file = File(book.fileFullPath);
-  await getBookMetadata(file, book: book, md5: book.md5);
+  await getBookMetadata(
+    file,
+    book: book,
+    md5: book.fileMd5 ?? book.md5,
+    fileMd5: book.fileMd5 ?? book.md5,
+    sourceMd5: book.sourceMd5,
+  );
+}
+
+class BookMd5Resolution {
+  final String? fileMd5;
+  final String? sourceMd5;
+
+  const BookMd5Resolution({
+    this.fileMd5,
+    this.sourceMd5,
+  });
+}
+
+BookMd5Resolution resolveBookMd5OnSave({
+  required bool isExistingBook,
+  String? effectiveFileMd5,
+  String? effectiveSourceMd5,
+  Book? provideBook,
+}) {
+  if (isExistingBook && provideBook != null) {
+    // When saving an existing book without overwriting the actual book library file,
+    // do NOT overwrite fileMd5 with the temporary prepared file's MD5.
+    final fileMd5 = provideBook.fileMd5;
+
+    // sourceMd5: if effectiveSourceMd5 is provided, retain existing sourceMd5
+    // or update if provideBook.sourceMd5 was null/empty.
+    final String? sourceMd5;
+    if (effectiveSourceMd5 != null && effectiveSourceMd5.isNotEmpty) {
+      sourceMd5 = (provideBook.sourceMd5 != null &&
+              provideBook.sourceMd5!.isNotEmpty)
+          ? provideBook.sourceMd5
+          : effectiveSourceMd5;
+    } else {
+      sourceMd5 = provideBook.sourceMd5;
+    }
+    return BookMd5Resolution(fileMd5: fileMd5, sourceMd5: sourceMd5);
+  } else {
+    // New book import: use prepared fileMd5 and sourceMd5
+    return BookMd5Resolution(
+      fileMd5: effectiveFileMd5,
+      sourceMd5: effectiveSourceMd5,
+    );
+  }
+}
+
+BookMd5Resolution resolveBookMd5OnReplace({
+  required bool isTxt,
+  required String? newSourceFileMd5,
+  required String? newProcessedFileMd5,
+}) {
+  if (isTxt) {
+    return BookMd5Resolution(
+      fileMd5: newProcessedFileMd5,
+      sourceMd5: newSourceFileMd5,
+    );
+  } else {
+    // For non-TXT replacements, the new file is the source itself.
+    // Ensure old source hash is never retained.
+    final hash = newProcessedFileMd5 ?? newSourceFileMd5;
+    return BookMd5Resolution(
+      fileMd5: hash,
+      sourceMd5: hash,
+    );
+  }
 }
 
 Future<void> saveBook(
@@ -553,8 +634,13 @@ Future<void> saveBook(
   String description,
   String? md5,
   String cover, {
+  String? fileMd5,
+  String? sourceMd5,
   Book? provideBook,
 }) async {
+  final effectiveFileMd5 = fileMd5 ?? md5;
+  final effectiveSourceMd5 = sourceMd5 ?? md5;
+
   // Extract original filename (without extension)
   final fileNameWithoutExt = path.basenameWithoutExtension(file.path);
 
@@ -571,8 +657,11 @@ Future<void> saveBook(
 
   final extension = file.path.split('.').last;
 
-  if (provideBook == null && md5 != null) {
-    provideBook = await bookDao.getBookByMd5(md5);
+  if (provideBook == null && effectiveSourceMd5 != null) {
+    provideBook = await bookDao.getBookBySourceMd5(effectiveSourceMd5);
+    if (provideBook == null) {
+      provideBook = await bookDao.getLegacyBookByFileMd5(effectiveSourceMd5);
+    }
   }
 
   final bool isExistingBook = provideBook != null;
@@ -588,6 +677,13 @@ Future<void> saveBook(
   String? dbCoverPath = 'cover/$newBookName';
   dbCoverPath = await saveImageToLocal(cover, dbCoverPath);
 
+  final md5Resolution = resolveBookMd5OnSave(
+    isExistingBook: isExistingBook,
+    effectiveFileMd5: effectiveFileMd5,
+    effectiveSourceMd5: effectiveSourceMd5,
+    provideBook: provideBook,
+  );
+
   Book book = Book(
       id: provideBook != null ? provideBook.id : -1,
       title: provideBook?.title ?? effectiveTitle,
@@ -601,7 +697,8 @@ Future<void> saveBook(
       isDeleted: false,
       rating: provideBook?.rating ?? 0.0,
       groupId: provideBook?.groupId ?? 0,
-      md5: md5 ?? provideBook?.md5,
+      fileMd5: md5Resolution.fileMd5,
+      sourceMd5: md5Resolution.sourceMd5,
       createTime: provideBook?.createTime ?? DateTime.now(),
       updateTime: DateTime.now());
 
@@ -615,21 +712,27 @@ Future<void> getBookMetadata(
   File file, {
   Book? book,
   String? md5,
+  String? fileMd5,
+  String? sourceMd5,
   WidgetRef? ref,
 }) async {
-  String serverFileName = Server().setTempFile(file);
+  final String serverFileName = Server().setTempFile(file);
 
-  String cfi = '';
+  try {
+    String cfi = '';
 
-  String bookUrl = "http://127.0.0.1:${Server().port}/$serverFileName";
-  AnxLog.info("import start: book url: $bookUrl");
+    String bookUrl = "http://127.0.0.1:${Server().port}/$serverFileName";
+    AnxLog.info("import start: book url: $bookUrl");
 
-  final completer = Completer<void>();
-  bool isHandlingMetadata = false;
-  Future<void>? saveFuture;
+    final effectiveFileMd5 = fileMd5 ?? md5;
+    final effectiveSourceMd5 = sourceMd5 ?? md5;
 
-  late final AnxHeadlessWebView webview;
-  webview = AnxHeadlessWebView(
+    final completer = Completer<void>();
+    bool isHandlingMetadata = false;
+    Future<void>? saveFuture;
+
+    late final AnxHeadlessWebView webview;
+    webview = AnxHeadlessWebView(
     webViewEnvironment: webViewEnvironment,
     initialUrlRequest: URLRequest(
         url: WebUri(generateUrl(
@@ -677,8 +780,10 @@ Future<void> getBookMetadata(
                   title,
                   author,
                   description,
-                  md5,
+                  effectiveFileMd5,
                   cover,
+                  fileMd5: effectiveFileMd5,
+                  sourceMd5: effectiveSourceMd5,
                   provideBook: book,
                 );
                 ref?.read(bookListProvider.notifier).refresh();
@@ -722,25 +827,28 @@ Future<void> getBookMetadata(
     },
   );
 
-  try {
-    await webview.run();
     try {
-      await completer.future.timeout(const Duration(seconds: 30));
-    } on TimeoutException {
-      if (saveFuture != null) {
-        await saveFuture;
-      } else {
-        throw Exception('Import: Get book metadata timeout');
+      await webview.run();
+      try {
+        await completer.future.timeout(const Duration(seconds: 30));
+      } on TimeoutException {
+        if (saveFuture != null) {
+          await saveFuture;
+        } else {
+          throw Exception('Import: Get book metadata timeout');
+        }
       }
+    } finally {
+      if (saveFuture != null) {
+        try {
+          await saveFuture;
+        } catch (_) {
+          // Any error was already reported through completer.
+        }
+      }
+      await webview.dispose();
     }
   } finally {
-    if (saveFuture != null) {
-      try {
-        await saveFuture;
-      } catch (_) {
-        // Any error was already reported through completer.
-      }
-    }
-    await webview.dispose();
+    Server().releaseTempFile(serverFileName);
   }
 }

@@ -13,7 +13,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 // Current app database version
-const int currentDbVersion = 7;
+const int currentDbVersion = 8;
 
 const createBookSQL = '''
 CREATE TABLE tb_books (
@@ -425,6 +425,11 @@ class DBHelper {
             VALUES (?, '...', 0, datetime('now'), datetime('now'))
           ''', [groupId]);
         }
+        continue case7;
+      case7:
+      case 7:
+        // add a column (source_md5) to tb_books, null default
+        await db.execute("ALTER TABLE tb_books ADD COLUMN source_md5 TEXT");
     }
 
     if (oldVersion != 0 && Prefs().webdavStatus) {
