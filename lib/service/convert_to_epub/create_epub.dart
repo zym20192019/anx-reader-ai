@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:anx_reader/service/convert_to_epub/epub_artifact_paths.dart';
 import 'package:anx_reader/service/convert_to_epub/generate_toc.dart';
 import 'package:anx_reader/service/convert_to_epub/section.dart';
 import 'package:anx_reader/service/convert_to_epub/txt/txt_paragraphs.dart';
@@ -21,15 +22,22 @@ Future<File> createEpub(
   String titleString,
   String authorString,
   // List<String> chapters,
-  List<Section> sections,
-) async {
+  List<Section> sections, {
+  Directory? tempDir,
+  String? uniqueId,
+}) async {
   // create epub
-  final cacheDir = await getAnxTempDir();
-  final epubDir = Directory('${cacheDir.path}/$titleString');
-  if (epubDir.existsSync()) {
-    epubDir.deleteSync(recursive: true);
-  }
-  epubDir.createSync();
+  final cacheDir = tempDir ?? await getAnxTempDir();
+  final paths = generateEpubArtifactPaths(cacheDir, uniqueId: uniqueId);
+  final epubDir = paths.workingDir;
+  final zipFile = paths.outputFile;
+
+  var success = false;
+  try {
+    if (epubDir.existsSync()) {
+      epubDir.deleteSync(recursive: true);
+    }
+    epubDir.createSync(recursive: true);
 
   // mimetype
   final mimetypeFile = File('${epubDir.path}/mimetype');
@@ -168,7 +176,9 @@ ${bodyContent.isEmpty ? '' : '$bodyContent\n'}
   }
 
   // zip
-  final zipFile = File('${cacheDir.path}/$titleString.epub');
+  if (zipFile.existsSync()) {
+    zipFile.deleteSync();
+  }
   zipFile.createSync();
 
   try {
@@ -183,6 +193,13 @@ ${bodyContent.isEmpty ? '' : '$bodyContent\n'}
     rethrow;
   }
 
-  epubDir.deleteSync(recursive: true);
+  success = true;
   return zipFile;
+} finally {
+  cleanupEpubArtifacts(
+    workingDir: epubDir,
+    outputFile: zipFile,
+    success: success,
+  );
+}
 }

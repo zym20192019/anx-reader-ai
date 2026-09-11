@@ -69,11 +69,11 @@ bool _needsLatinSpace(String left, String right) {
       _latinPunctuationEndPattern.hasMatch(left);
 }
 
-String _joinWrappedLines(String left, String right) {
-  if (_needsLatinSpace(left, right)) {
-    return '$left $right';
+void _appendWrappedLine(StringBuffer buffer, String previousLine, String line) {
+  if (_needsLatinSpace(previousLine, line)) {
+    buffer.write(' ');
   }
-  return '$left$right';
+  buffer.write(line);
 }
 
 _FixedWidthProfile? _detectFixedWidth(List<String> rawLines) {
@@ -216,7 +216,11 @@ List<String> reconstructParagraphs(String input) {
       flushBuffer();
       buffer.write(line);
     } else {
-      buffer.write(_joinWrappedLines(buffer.toString(), line));
+      _appendWrappedLine(
+        buffer,
+        previousPhysicalLine ?? buffer.toString(),
+        line,
+      );
     }
     previousPhysicalLine = line;
   }

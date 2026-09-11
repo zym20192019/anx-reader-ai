@@ -155,5 +155,49 @@ void main() {
         equals(['这一段在固定宽度处被截断了所以这里是短尾。']),
       );
     });
+
+    test('joins 3+ consecutive hard-wrapped Chinese lines without exponential duplication', () {
+      const source = '''
+这是第一行没有标点的文本内容
+这是第二行紧接着第一行的文本
+这是第三行继续延展的文本内容
+这是第四行最后在句号结束。''';
+
+      expect(
+        reconstructParagraphs(source),
+        equals([
+          '这是第一行没有标点的文本内容这是第二行紧接着第一行的文本这是第三行继续延展的文本内容这是第四行最后在句号结束。',
+        ]),
+      );
+    });
+
+    test('joins 3+ consecutive hard-wrapped English lines with single spaces', () {
+      const source = '''
+This is the first physical line
+and this is the second line
+and this is the third line
+finishing the paragraph here.''';
+
+      expect(
+        reconstructParagraphs(source),
+        equals([
+          'This is the first physical line and this is the second line and this is the third line finishing the paragraph here.',
+        ]),
+      );
+    });
+
+    test('joins 3+ consecutive hard-wrapped lines with hyphenation without extra space', () {
+      const source = '''
+This represents an inter-
+national organi-
+zation in modern times.''';
+
+      expect(
+        reconstructParagraphs(source),
+        equals([
+          'This represents an inter-national organi-zation in modern times.',
+        ]),
+      );
+    });
   });
 }
