@@ -113,7 +113,9 @@ void main() {
       paths.outputFile.deleteSync();
     });
 
-    test('cleanupEpubArtifacts on failure deletes both working dir and output file', () {
+    // Note: These tests verify the cleanupEpubArtifacts helper contract directly,
+    // not the full createEpub exception chain (which is verified end-to-end in txt_to_epub_integration_test.dart).
+    test('cleanupEpubArtifacts helper contract: on failure deletes both working dir and output file', () {
       final paths = generateEpubArtifactPaths(tempBaseDir);
       paths.workingDir.createSync(recursive: true);
       final dummyInner = File('${paths.workingDir.path}/mimetype');
