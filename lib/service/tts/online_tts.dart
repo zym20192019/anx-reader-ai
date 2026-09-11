@@ -5,6 +5,7 @@ import 'package:anx_reader/page/reading_page.dart';
 import 'package:anx_reader/service/tts/base_tts.dart';
 import 'package:anx_reader/service/tts/tts_service.dart';
 import 'package:anx_reader/service/tts/tts_service_provider.dart';
+import 'package:anx_reader/service/tts/local_tts/wav_encoder.dart';
 import 'package:anx_reader/service/tts/models/tts_segment.dart';
 import 'package:anx_reader/service/tts/models/tts_sentence.dart';
 import 'package:anx_reader/service/tts/models/tts_voice.dart';
@@ -378,7 +379,8 @@ class OnlineTts extends BaseTts {
 
         // Play audio
         _playbackCompleter = Completer<void>();
-        final source = BytesSource(segment.audio!, mimeType: 'audio/mp3');
+        final mimeType = WavEncoder.detectAudioMimeType(segment.audio!);
+        final source = BytesSource(segment.audio!, mimeType: mimeType);
 
         try {
           await audioPlayer.play(source);
@@ -485,7 +487,8 @@ class OnlineTts extends BaseTts {
 
     final bytes = await backend.speak(content, voice, rate, pitch);
     if (bytes.isNotEmpty) {
-      final source = BytesSource(bytes, mimeType: 'audio/mp3');
+      final mimeType = WavEncoder.detectAudioMimeType(bytes);
+      final source = BytesSource(bytes, mimeType: mimeType);
       await audioPlayer.play(source);
     }
   }

@@ -1,6 +1,9 @@
 import 'package:anx_reader/config/shared_preference_provider.dart';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/providers/tts_providers.dart';
+import 'package:anx_reader/service/tts/local_tts/local_tts.dart';
+import 'package:anx_reader/service/tts/local_tts/local_voice_model.dart';
+import 'package:anx_reader/service/tts/local_tts/local_voice_model_manager.dart';
 import 'package:anx_reader/service/tts/models/tts_voice.dart';
 import 'package:anx_reader/service/tts/online_tts.dart';
 import 'package:anx_reader/service/tts/system_tts.dart';
@@ -73,6 +76,8 @@ class _NarrateSettingsState extends ConsumerState<NarrateSettings>
         } else {
           await tts.speak(content: text);
         }
+      } else if (tts is LocalTts) {
+        await tts.speakPreview(text, voice: voiceShortName);
       }
     } catch (e) {
       AnxLog.severe('TTS Test Speak Error: $e');
@@ -362,7 +367,9 @@ class _NarrateSettingsState extends ConsumerState<NarrateSettings>
           title: Text(L10n.of(context).ttsType),
           tiles: [
             CustomSettingsTile(child: _buildServiceSelection(ttsServiceId)),
-            if (ttsServiceId != 'system')
+            if (ttsServiceId == 'local')
+              CustomSettingsTile(child: _buildLocalVoiceSection()),
+            if (ttsServiceId != 'system' && ttsServiceId != 'local')
               CustomSettingsTile(child: _buildConfigSection(ttsServiceId)),
           ],
         ),
@@ -436,6 +443,9 @@ class _NarrateSettingsState extends ConsumerState<NarrateSettings>
               value: 'system',
               child: Text(L10n.of(context).settingsNarrateSystemTts)),
           DropdownMenuItem(
+              value: 'local',
+              child: const Text('离线自然朗读')),
+          DropdownMenuItem(
               value: 'aliyun',
               child: Text(L10n.of(context).settingsNarrateAliyunTts)),
           DropdownMenuItem(
@@ -461,6 +471,186 @@ class _NarrateSettingsState extends ConsumerState<NarrateSettings>
           }
         },
       ),
+    );
+  }
+
+  Widget _buildLocalVoiceSection() {
+    final model = LocalVoiceModel.defaultChineseModel;
+    final modelManager = LocalVoiceModelManager();
+
+    return ValueListenableBuilder<ModelInstallStatus>(
+      valueListenable: modelManager.getStatusNotifier(model),
+      builder: (context, status, _) {
+        return FutureBuilder<bool>(
+          future: modelManager.isModelInstalled(model),
+          builder: (context, snapshot) {
+            final isInstalled =
+                snapshot.data ?? (status == ModelInstallStatus.installed);
+
+            return Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: FilledContainer(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.record_voice_over_outlined,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              model.displayName,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isInstalled
+                                  ? Colors.green.withValues(alpha: 0.15)
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              isInstalled ? '已安装' : '未下载',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isInstalled
+                                    ? Colors.green
+                                    : Theme.of(context).colorScheme.outline,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '语言：中文 · 大小：${model.formattedSize}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (status == ModelInstallStatus.downloading) ...[
+                        ValueListenableBuilder<double>(
+                          valueListenable:
+                              modelManager.getDownloadProgress(model),
+                          builder: (context, progress, _) {
+                            final percent =
+                                (progress * 100).toStringAsFixed(0);
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                LinearProgressIndicator(
+                                    value: progress > 0 ? progress : null),
+                                const SizedBox(height: 6),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text('正在下载 $percent%...',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall),
+                                    TextButton(
+                                      onPressed: () {
+                                        modelManager.cancelDownload(model);
+                                      },
+                                      child: const Text('取消'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ] else if (isInstalled) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.play_arrow, size: 18),
+                                label: const Text('试听'),
+                                onPressed: () {
+                                  _testSpeak(
+                                      '你好，这是离线自然朗读的声音效果。', model.id);
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              icon: Icon(Icons.delete_outline,
+                                  size: 18,
+                                  color: Theme.of(context).colorScheme.error),
+                              label: Text('删除',
+                                  style: TextStyle(
+                                      color:
+                                          Theme.of(context).colorScheme.error)),
+                              onPressed: () async {
+                                await modelManager.deleteModel(model);
+                                if (mounted) setState(() {});
+                              },
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '提示：未下载声音包时，阅读时将自动回退使用系统朗读。',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color:
+                                        Theme.of(context).colorScheme.outline,
+                                  ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: AnxButton(
+                                onPressed: () async {
+                                  try {
+                                    await modelManager
+                                        .downloadAndInstall(model);
+                                    if (mounted) setState(() {});
+                                  } catch (e) {
+                                    AnxLog.severe('Model download error: $e');
+                                    if (mounted) {
+                                      SmartDialog.showToast('下载失败: $e');
+                                    }
+                                  }
+                                },
+                                child: Text('下载声音包 (${model.formattedSize})'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
