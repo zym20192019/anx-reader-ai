@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:anx_reader/dao/book.dart';
@@ -37,11 +38,15 @@ import 'package:path/path.dart' as path;
 
 import 'book_player/book_player_server.dart';
 
-AnxHeadlessWebView? headlessInAppWebView;
 final allowBookExtensions = ["epub", "mobi", "azw3", "fb2", "txt", "pdf"];
 
-/// import book list without deleting user-selected TXT sources
-void importBookList(List<File> fileList, BuildContext context, WidgetRef ref) {
+/// Import files with explicit ownership for app-created temporary copies.
+void importBookList(
+  List<File> fileList,
+  BuildContext context,
+  WidgetRef ref, {
+  Set<String> ownedInputPaths = const <String>{},
+}) {
   AnxLog.info('importBook fileList: ${fileList.toString()}');
 
   List<File> supportedFiles = fileList.where((file) {
@@ -60,6 +65,7 @@ void importBookList(List<File> fileList, BuildContext context, WidgetRef ref) {
     fileList,
     context,
     ref,
+    ownedInputPaths,
   );
 }
 
@@ -68,7 +74,8 @@ void _checkDuplicatesAndShowDialog(
     List<File> unsupportedFiles,
     List<File> fileList,
     BuildContext context,
-    WidgetRef ref) async {
+    WidgetRef ref,
+    Set<String> ownedInputPaths) async {
   showDialog(
     context: context,
     barrierDismissible: false,
@@ -114,6 +121,7 @@ void _checkDuplicatesAndShowDialog(
       unsupportedFiles,
       fileList,
       ref,
+      ownedInputPaths,
     );
   } catch (e) {
     Navigator.of(navigatorKey.currentContext!).pop();
@@ -125,6 +133,7 @@ void _checkDuplicatesAndShowDialog(
       unsupportedFiles,
       fileList,
       ref,
+      ownedInputPaths,
     );
   }
 }
@@ -136,11 +145,17 @@ void _showImportDialog(
   List<File> unsupportedFiles,
   List<File> fileList,
   WidgetRef ref,
+  Set<String> ownedInputPaths,
 ) {
   // Keep selected TXT sources intact; only discard temporary unsupported copies.
   for (var file in unsupportedFiles) {
-    if (shouldDeleteImportedInput(file)) {
-      file.deleteSync();
+    if (shouldDeleteImportedInput(
+      file,
+      ownsFile: ownedInputPaths.contains(file.path),
+    )) {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
     }
   }
 
@@ -226,6 +241,7 @@ void _showImportDialog(
 
   showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         String currentHandlingFile = '';
         List<String> errorFiles = [];
@@ -342,8 +358,13 @@ void _showImportDialog(
                 onPressed: () {
                   Navigator.pop(context);
                   for (var file in supportedFiles) {
-                    if (shouldDeleteImportedInput(file)) {
-                      file.deleteSync();
+                    if (shouldDeleteImportedInput(
+                      file,
+                      ownsFile: ownedInputPaths.contains(file.path),
+                    )) {
+                      if (file.existsSync()) {
+                        file.deleteSync();
+                      }
                     }
                   }
                 },
@@ -369,7 +390,11 @@ void _showImportDialog(
                           currentHandlingFile = file.path;
                         });
                         try {
-                          await importBook(file, ref);
+                          await importBook(
+                            file,
+                            ref,
+                            ownsInput: ownedInputPaths.contains(file.path),
+                          );
                           setState(() {
                             currentHandlingFile = '';
                           });
@@ -383,13 +408,17 @@ void _showImportDialog(
                         }
                       }
 
-                      // dumplicateFiles will be deleted if skipDuplicates is true
+                      // duplicateFiles will be deleted if skipDuplicates is true
                       // if skipDuplicates is false, they will be imported
-                      // and then deleted in the importBook function
                       if (skipDuplicates) {
                         for (var file in duplicateFiles) {
-                          if (shouldDeleteImportedInput(file)) {
-                            file.deleteSync();
+                          if (shouldDeleteImportedInput(
+                            file,
+                            ownsFile: ownedInputPaths.contains(file.path),
+                          )) {
+                            if (file.existsSync()) {
+                              file.deleteSync();
+                            }
                           }
                         }
                       }
@@ -413,24 +442,30 @@ void _showImportDialog(
       });
 }
 
-Future<void> importBook(File file, WidgetRef ref) async {
-  String? md5 = await MD5Service.calculateFileMd5(file.path);
+Future<void> importBook(
+  File file,
+  WidgetRef ref, {
+  bool ownsInput = false,
+}) async {
   final sourceFile = file;
-  final preparedFile = await prepareImportedFile(
-    sourceFile,
-    convertTxt: convertFromTxt,
-  );
-
+  File? preparedFile;
   try {
+    final md5 = await MD5Service.calculateFileMd5(file.path);
+    preparedFile = await prepareImportedFile(
+      sourceFile,
+      convertTxt: convertFromTxt,
+    );
     await getBookMetadata(preparedFile, md5: md5, ref: ref);
     ref.read(bookListProvider.notifier).refresh();
   } finally {
-    // The original TXT is user data and must remain available for future
-    // re-conversion. The generated EPUB is removed after saveBook copies it;
-    // this fallback only cleans it up when metadata extraction fails.
-    if (preparedFile.path != sourceFile.path &&
+    if (preparedFile != null &&
+        preparedFile.path != sourceFile.path &&
         await preparedFile.exists()) {
       await preparedFile.delete();
+    }
+    if (shouldDeleteImportedInput(sourceFile, ownsFile: ownsInput) &&
+        await sourceFile.exists()) {
+      await sourceFile.delete();
     }
   }
 }
@@ -507,8 +542,8 @@ void updateBookRating(Book book, double rating) {
 }
 
 Future<void> resetBookCover(Book book) async {
-  File file = File(book.fileFullPath);
-  getBookMetadata(file);
+  final file = File(book.fileFullPath);
+  await getBookMetadata(file, book: book, md5: book.md5);
 }
 
 Future<void> saveBook(
@@ -536,40 +571,44 @@ Future<void> saveBook(
 
   final extension = file.path.split('.').last;
 
-  final dbFilePath = 'file/$newBookName.$extension';
-  final filePath = getBasePath(dbFilePath);
-  String? dbCoverPath = 'cover/$newBookName';
-  // final coverPath = getBasePath(dbCoverPath);
-
-  // The temporary import file is no longer needed after it is copied into
-  // application storage. Await cleanup so callers can safely continue.
-  await file.copy(filePath);
-  await file.delete();
-
-  dbCoverPath = await saveImageToLocal(cover, dbCoverPath);
-  if (md5 != null) {
-    provideBook ??= await bookDao.getBookByMd5(md5);
+  if (provideBook == null && md5 != null) {
+    provideBook = await bookDao.getBookByMd5(md5);
   }
+
+  final bool isExistingBook = provideBook != null;
+  final String dbFilePath;
+  if (isExistingBook) {
+    dbFilePath = provideBook.filePath;
+  } else {
+    dbFilePath = 'file/$newBookName.$extension';
+    final filePath = getBasePath(dbFilePath);
+    await file.copy(filePath);
+  }
+
+  String? dbCoverPath = 'cover/$newBookName';
+  dbCoverPath = await saveImageToLocal(cover, dbCoverPath);
 
   Book book = Book(
       id: provideBook != null ? provideBook.id : -1,
       title: provideBook?.title ?? effectiveTitle,
       coverPath: dbCoverPath,
-      filePath: dbFilePath,
+      filePath: provideBook?.filePath ?? dbFilePath,
       lastReadPosition: provideBook?.lastReadPosition ?? '',
       readingPercentage: provideBook?.readingPercentage ?? 0,
       author: provideBook?.author ?? author,
+      description:
+          description.isNotEmpty ? description : provideBook?.description,
       isDeleted: false,
       rating: provideBook?.rating ?? 0.0,
-      md5: md5,
+      groupId: provideBook?.groupId ?? 0,
+      md5: md5 ?? provideBook?.md5,
       createTime: provideBook?.createTime ?? DateTime.now(),
       updateTime: DateTime.now());
 
   book.id = await bookDao.insertBook(book);
-  AnxToast.show(L10n.of(navigatorKey.currentContext!).serviceImportSuccess);
-  await headlessInAppWebView?.dispose();
-  headlessInAppWebView = null;
-  return;
+  if (navigatorKey.currentContext != null) {
+    AnxToast.show(L10n.of(navigatorKey.currentContext!).serviceImportSuccess);
+  }
 }
 
 Future<void> getBookMetadata(
@@ -585,7 +624,12 @@ Future<void> getBookMetadata(
   String bookUrl = "http://127.0.0.1:${Server().port}/$serverFileName";
   AnxLog.info("import start: book url: $bookUrl");
 
-  AnxHeadlessWebView webview = AnxHeadlessWebView(
+  final completer = Completer<void>();
+  bool isHandlingMetadata = false;
+  Future<void>? saveFuture;
+
+  late final AnxHeadlessWebView webview;
+  webview = AnxHeadlessWebView(
     webViewEnvironment: webViewEnvironment,
     initialUrlRequest: URLRequest(
         url: WebUri(generateUrl(
@@ -597,55 +641,106 @@ Future<void> getBookMetadata(
       controller.addJavaScriptHandler(
           handlerName: 'onMetadata',
           callback: (args) async {
-            Map<String, dynamic> metadata = args[0];
-            String title = metadata['title'] ?? 'Unknown';
-            dynamic authorData = metadata['author'];
-            String author = authorData is String
-                ? authorData
-                : authorData
-                        ?.map((author) =>
-                            author is String ? author : author['name'])
-                        ?.join(', ') ??
-                    'Unknown';
+            if (isHandlingMetadata) {
+              return;
+            }
+            isHandlingMetadata = true;
 
-            // base64 cover
-            String cover = metadata['cover'] ?? '';
-            String description = metadata['description'] ?? '';
-            await saveBook(
-              file,
-              title,
-              author,
-              description,
-              md5,
-              cover,
-              provideBook: book,
-            );
-            ref?.read(bookListProvider.notifier).refresh();
-            // return;
+            saveFuture = () async {
+              try {
+                Map<String, dynamic> metadata =
+                    args.isNotEmpty && args[0] is Map
+                        ? (args[0] is Map<String, dynamic>
+                            ? args[0] as Map<String, dynamic>
+                            : Map<String, dynamic>.from(args[0] as Map))
+                        : <String, dynamic>{};
+                String title = metadata['title']?.toString() ?? 'Unknown';
+                dynamic authorData = metadata['author'];
+                String author = authorData is String
+                    ? authorData
+                    : authorData is Iterable
+                        ? authorData
+                            .map((author) => author is String
+                                ? author
+                                : (author is Map
+                                        ? author['name']?.toString()
+                                        : null) ??
+                                    'Unknown')
+                            .join(', ')
+                        : 'Unknown';
+
+                // base64 cover
+                String cover = metadata['cover']?.toString() ?? '';
+                String description = metadata['description']?.toString() ?? '';
+                await saveBook(
+                  file,
+                  title,
+                  author,
+                  description,
+                  md5,
+                  cover,
+                  provideBook: book,
+                );
+                ref?.read(bookListProvider.notifier).refresh();
+                if (!completer.isCompleted) {
+                  completer.complete();
+                }
+              } catch (e, stackTrace) {
+                AnxLog.severe('Error in onMetadata handler: $e\n$stackTrace');
+                if (!completer.isCompleted) {
+                  completer.completeError(e, stackTrace);
+                }
+                rethrow;
+              }
+            }();
+            await saveFuture;
           });
     },
     onConsoleMessage: (controller, consoleMessage) {
       if (consoleMessage.messageLevel == ConsoleMessageLevel.ERROR) {
-        headlessInAppWebView?.dispose();
-        headlessInAppWebView = null;
-        throw Exception('Webview: ${consoleMessage.message}');
+        if (!isHandlingMetadata && !completer.isCompleted) {
+          completer.completeError(
+            Exception('Webview: ${consoleMessage.message}'),
+          );
+        }
       }
       webviewConsoleMessage(controller, consoleMessage);
     },
+    onLoadError: (controller, url, code, message) {
+      if (!isHandlingMetadata && !completer.isCompleted) {
+        completer.completeError(
+          Exception('Webview load error: $message ($code)'),
+        );
+      }
+    },
+    onLoadHttpError: (controller, url, statusCode, description) {
+      if (!isHandlingMetadata && !completer.isCompleted) {
+        completer.completeError(
+          Exception('Webview HTTP error: $description ($statusCode)'),
+        );
+      }
+    },
   );
 
-  await webview.run();
-  headlessInAppWebView = webview;
-  // max 30s
-  int count = 0;
-  while (count < 300) {
-    if (headlessInAppWebView == null) {
-      return;
+  try {
+    await webview.run();
+    try {
+      await completer.future.timeout(const Duration(seconds: 30));
+    } on TimeoutException {
+      if (saveFuture != null) {
+        await saveFuture;
+      } else {
+        throw Exception('Import: Get book metadata timeout');
+      }
     }
-    await Future.delayed(const Duration(milliseconds: 100));
-    count++;
+  } finally {
+    if (saveFuture != null) {
+      try {
+        await saveFuture;
+      } catch (_) {
+        // Any error was already reported through completer.
+      }
+    }
+    await webview.dispose();
   }
-  await headlessInAppWebView?.dispose();
-  headlessInAppWebView = null;
-  throw Exception('Import: Get book metadata timeout');
 }

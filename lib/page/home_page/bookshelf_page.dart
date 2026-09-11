@@ -98,7 +98,16 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
       fileList = files.map((file) => File(file.path!)).toList();
     }
 
-    importBookList(fileList, context, ref);
+    final ownedInputPaths = !AnxPlatform.isAndroid
+        ? fileList.map((file) => file.path).toSet()
+        : const <String>{};
+
+    importBookList(
+      fileList,
+      context,
+      ref,
+      ownedInputPaths: ownedInputPaths,
+    );
   }
 
   @override
@@ -492,7 +501,12 @@ class BookshelfPageState extends ConsumerState<BookshelfPage>
                   fileName: file.name,
                 ));
               }
-              importBookList(files, context, ref);
+              importBookList(
+                files,
+                context,
+                ref,
+                ownedInputPaths: files.map((file) => file.path).toSet(),
+              );
               setState(() {
                 _dragging = false;
               });
