@@ -19,7 +19,11 @@ class SystemTts extends BaseTts {
 
   SystemTts._internal();
 
-  final FlutterTts flutterTts = FlutterTts();
+  @visibleForTesting
+  FlutterTts? flutterTtsForTesting;
+
+  FlutterTts get flutterTts => flutterTtsForTesting ?? _flutterTts;
+  final FlutterTts _flutterTts = FlutterTts();
 
   String? _currentVoiceText;
   static String? _prevVoiceText;
@@ -45,29 +49,53 @@ class SystemTts extends BaseTts {
   bool get isWeb => kIsWeb;
 
   @override
-  double get volume => Prefs().ttsVolume;
+  double get volume {
+    try {
+      return Prefs().ttsVolume;
+    } catch (_) {
+      return 1.0;
+    }
+  }
 
   @override
   set volume(double volume) {
-    Prefs().ttsVolume = volume;
+    try {
+      Prefs().ttsVolume = volume;
+    } catch (_) {}
     restart();
   }
 
   @override
-  double get pitch => Prefs().ttsPitch;
+  double get pitch {
+    try {
+      return Prefs().ttsPitch;
+    } catch (_) {
+      return 1.0;
+    }
+  }
 
   @override
   set pitch(double pitch) {
-    Prefs().ttsPitch = pitch;
+    try {
+      Prefs().ttsPitch = pitch;
+    } catch (_) {}
     restart();
   }
 
   @override
-  double get rate => Prefs().ttsRate;
+  double get rate {
+    try {
+      return Prefs().ttsRate;
+    } catch (_) {
+      return 0.6;
+    }
+  }
 
   @override
   set rate(double rate) {
-    Prefs().ttsRate = rate;
+    try {
+      Prefs().ttsRate = rate;
+    } catch (_) {}
     restart();
   }
 

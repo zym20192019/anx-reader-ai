@@ -9,7 +9,67 @@ import 'package:anx_reader/service/tts/local_tts/local_voice_model.dart';
 import 'package:anx_reader/service/tts/local_tts/local_voice_model_manager.dart';
 import 'package:anx_reader/service/tts/models/tts_segment.dart';
 import 'package:anx_reader/service/tts/models/tts_sentence.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class MockSystemTts extends BaseTts {
+  bool initCalled = false;
+  bool speakCalled = false;
+  String? lastSpokenContent;
+
+  @override
+  final ValueNotifier<TtsStateEnum> ttsStateNotifier =
+      ValueNotifier<TtsStateEnum>(TtsStateEnum.stopped);
+
+  @override
+  void updateTtsState(TtsStateEnum newState) {
+    ttsStateNotifier.value = newState;
+  }
+
+  @override
+  double get volume => 1.0;
+  @override
+  set volume(double volume) {}
+  @override
+  double get pitch => 1.0;
+  @override
+  set pitch(double pitch) {}
+  @override
+  double get rate => 1.0;
+  @override
+  set rate(double rate) {}
+
+  @override
+  Future<void> init(
+    Function getCurrentText,
+    Function getNextText,
+    Function getPrevText,
+  ) async {
+    initCalled = true;
+  }
+
+  @override
+  Future<void> speak({String? content}) async {
+    speakCalled = true;
+    lastSpokenContent = content;
+  }
+
+  @override
+  Future<void> stop() async {}
+  @override
+  Future<void> pause() async {}
+  @override
+  Future<void> resume() async {}
+  @override
+  Future<void> next() async {}
+  @override
+  Future<void> prev() async {}
+  @override
+  Future<void> restart() async {}
+  @override
+  Future<void> dispose() async {}
+}
 
 class MockLocalTtsEngine implements LocalTtsEngine {
   int activeConcurrentSyntheses = 0;
@@ -95,9 +155,54 @@ void main() {
 
   late Directory testTempDir;
 
+  setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('flutter_tts'),
+            (MethodCall methodCall) async {
+      switch (methodCall.method) {
+        case 'awaitSpeakCompletion':
+        case 'awaitSynthCompletion':
+        case 'setQueueMode':
+        case 'setVolume':
+        case 'setSpeechRate':
+        case 'setPitch':
+        case 'speak':
+        case 'stop':
+        case 'pause':
+          return 1;
+        case 'getEngines':
+          return <String>[];
+        case 'getDefaultEngine':
+          return 'default';
+        case 'getDefaultVoice':
+          return <String, String>{'name': 'default', 'locale': 'zh-CN'};
+        case 'getVoices':
+          return <dynamic>[];
+        default:
+          return null;
+      }
+    });
+  });
+
+  tearDownAll(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('flutter_tts'), null);
+  });
+
   setUp(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
     testTempDir = Directory.systemTemp.createTempSync('anx_local_tts_test_');
+
+    final modelDir = Directory(
+      '${testTempDir.path}/tts_models/${LocalVoiceModel.defaultChineseModel.id}',
+    )..createSync(recursive: true);
+    for (final filename in LocalVoiceModel.defaultChineseModel.requiredFiles) {
+      File('${modelDir.path}/$filename').writeAsStringSync('dummy');
+    }
+
     final localTts = LocalTts(
       modelManager: LocalVoiceModelManager.withDirs(
         getBaseDir: () async => testTempDir,
@@ -106,6 +211,10 @@ void main() {
     );
     await localTts.stop();
     localTts.isInit = false;
+    localTts.volumeOverrideForTesting = 1.0;
+    localTts.pitchOverrideForTesting = 1.0;
+    localTts.rateOverrideForTesting = 1.0;
+    localTts.systemTtsForTesting = null;
     localTts.getHereFunction = null;
     localTts.getNextTextFunction = null;
     localTts.getPrevTextFunction = null;
@@ -120,6 +229,10 @@ void main() {
     final localTts = LocalTts();
     await localTts.stop();
     localTts.isInit = false;
+    localTts.volumeOverrideForTesting = null;
+    localTts.pitchOverrideForTesting = null;
+    localTts.rateOverrideForTesting = null;
+    localTts.systemTtsForTesting = null;
     localTts.getHereFunction = null;
     localTts.getNextTextFunction = null;
     localTts.getPrevTextFunction = null;
@@ -935,6 +1048,92 @@ void main() {
       expect(hereCalled, isTrue,
           reason:
               'Standard speak() must invoke getHereFunction to sync with viewport');
+    });
+  });
+
+  group('LocalTts Volume, Pitch, and Rate Injection & Safety', () {
+    test('overrides provide isolated rate, pitch, and volume without platform channel', () {
+      final localTts = LocalTts();
+      localTts.volumeOverrideForTesting = 0.8;
+      localTts.pitchOverrideForTesting = 1.2;
+      localTts.rateOverrideForTesting = 1.5;
+
+      expect(localTts.volume, equals(0.8));
+      expect(localTts.pitch, equals(1.2));
+      expect(localTts.rate, equals(1.5));
+
+      localTts.volume = 0.5;
+      localTts.pitch = 0.9;
+      localTts.rate = 1.1;
+
+      expect(localTts.volume, equals(0.5));
+      expect(localTts.pitch, equals(0.9));
+      expect(localTts.rate, equals(1.1));
+    });
+  });
+
+  group('LocalTts Fallback to SystemTts When Uninstalled', () {
+    test(
+        'speak() invokes SystemTts fallback when voice model is not installed',
+        () async {
+      final uninstalledDir =
+          Directory.systemTemp.createTempSync('anx_tts_uninstalled_');
+      try {
+        final localTts = LocalTts(
+          modelManager: LocalVoiceModelManager.withDirs(
+            getBaseDir: () async => uninstalledDir,
+            getTempDir: () async => uninstalledDir,
+          ),
+        );
+
+        final mockSystemTts = MockSystemTts();
+        localTts.systemTtsForTesting = mockSystemTts;
+
+        await localTts.init(
+          () {},
+          () {},
+          () {},
+        );
+
+        await localTts.speak();
+
+        expect(mockSystemTts.initCalled, isTrue,
+            reason: 'Fallback must initialize SystemTts with reader callbacks');
+        expect(mockSystemTts.speakCalled, isTrue,
+            reason: 'Fallback must call SystemTts.speak()');
+      } finally {
+        if (uninstalledDir.existsSync()) {
+          uninstalledDir.deleteSync(recursive: true);
+        }
+      }
+    });
+
+    test(
+        'speakPreview() delegates to SystemTts when voice model is not installed',
+        () async {
+      final uninstalledDir =
+          Directory.systemTemp.createTempSync('anx_tts_uninstalled_');
+      try {
+        final localTts = LocalTts(
+          modelManager: LocalVoiceModelManager.withDirs(
+            getBaseDir: () async => uninstalledDir,
+            getTempDir: () async => uninstalledDir,
+          ),
+        );
+
+        final mockSystemTts = MockSystemTts();
+        localTts.systemTtsForTesting = mockSystemTts;
+
+        await localTts.speakPreview('测试预览内容');
+
+        expect(mockSystemTts.speakCalled, isTrue,
+            reason: 'Fallback preview must call SystemTts.speak(content: ...)');
+        expect(mockSystemTts.lastSpokenContent, equals('测试预览内容'));
+      } finally {
+        if (uninstalledDir.existsSync()) {
+          uninstalledDir.deleteSync(recursive: true);
+        }
+      }
     });
   });
 }

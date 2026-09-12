@@ -114,8 +114,21 @@ class LocalTts extends BaseTts {
     ttsStateNotifier.value = newState;
   }
 
+  @visibleForTesting
+  double? volumeOverrideForTesting;
+
+  @visibleForTesting
+  double? pitchOverrideForTesting;
+
+  @visibleForTesting
+  double? rateOverrideForTesting;
+
+  @visibleForTesting
+  BaseTts? systemTtsForTesting;
+
   @override
   double get volume {
+    if (volumeOverrideForTesting != null) return volumeOverrideForTesting!;
     try {
       return Prefs().ttsVolume;
     } catch (_) {
@@ -125,6 +138,9 @@ class LocalTts extends BaseTts {
 
   @override
   set volume(double volume) {
+    if (volumeOverrideForTesting != null) {
+      volumeOverrideForTesting = volume;
+    }
     try {
       Prefs().ttsVolume = volume;
     } catch (_) {}
@@ -133,6 +149,7 @@ class LocalTts extends BaseTts {
 
   @override
   double get pitch {
+    if (pitchOverrideForTesting != null) return pitchOverrideForTesting!;
     try {
       return Prefs().ttsPitch;
     } catch (_) {
@@ -142,6 +159,9 @@ class LocalTts extends BaseTts {
 
   @override
   set pitch(double pitch) {
+    if (pitchOverrideForTesting != null) {
+      pitchOverrideForTesting = pitch;
+    }
     try {
       Prefs().ttsPitch = pitch;
     } catch (_) {}
@@ -150,6 +170,7 @@ class LocalTts extends BaseTts {
 
   @override
   double get rate {
+    if (rateOverrideForTesting != null) return rateOverrideForTesting!;
     try {
       return Prefs().ttsRate;
     } catch (_) {
@@ -159,6 +180,9 @@ class LocalTts extends BaseTts {
 
   @override
   set rate(double rate) {
+    if (rateOverrideForTesting != null) {
+      rateOverrideForTesting = rate;
+    }
     try {
       Prefs().ttsRate = rate;
     } catch (_) {}
@@ -582,7 +606,7 @@ class LocalTts extends BaseTts {
     if (!isInstalled) {
       AnxLog.warning(
           'Local TTS model not installed, falling back to System TTS');
-      final systemTts = SystemTts();
+      final systemTts = systemTtsForTesting ?? SystemTts();
       if (getHereFunction != null &&
           getNextTextFunction != null &&
           getPrevTextFunction != null) {
@@ -625,7 +649,7 @@ class LocalTts extends BaseTts {
     if (!isInstalled) {
       AnxLog.warning(
           'Local TTS model not installed for preview, falling back to System TTS');
-      final systemTts = SystemTts();
+      final systemTts = systemTtsForTesting ?? SystemTts();
       await systemTts.speak(content: text);
       return;
     }
@@ -741,6 +765,10 @@ class LocalTts extends BaseTts {
     detailCollectorForTesting = null;
     cfiHighlighterForTesting = null;
     nextSectionHandlerForTesting = null;
+    systemTtsForTesting = null;
+    volumeOverrideForTesting = null;
+    pitchOverrideForTesting = null;
+    rateOverrideForTesting = null;
     await provider.dispose();
   }
 
