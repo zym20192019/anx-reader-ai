@@ -181,15 +181,20 @@ class WebdavClient extends SyncClientBase {
         .toList();
   }
 
-  @override
-  Future<RemoteFile?> readProps(String path) async {
-    RemoteFile? file;
-    try {
-      file = (await _client.readProps(path)).toRemoteFile();
-    } catch (e) {
+  static RemoteFile? handleReadPropsError(Object e) {
+    if (e is DioException && e.response?.statusCode == 404) {
       return null;
     }
-    return file;
+    throw e;
+  }
+
+  @override
+  Future<RemoteFile?> readProps(String path) async {
+    try {
+      return (await _client.readProps(path)).toRemoteFile();
+    } catch (e) {
+      return handleReadPropsError(e);
+    }
   }
 
   @override

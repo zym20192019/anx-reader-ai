@@ -12,6 +12,7 @@ import 'package:anx_reader/providers/sync_status.dart';
 import 'package:anx_reader/providers/tb_groups.dart';
 import 'package:anx_reader/service/sync/sync_client_factory.dart';
 import 'package:anx_reader/service/sync/sync_client_base.dart';
+import 'package:anx_reader/service/sync/sync_decision_helper.dart';
 import 'package:anx_reader/service/database_sync_manager.dart';
 import 'package:anx_reader/dao/database.dart';
 import 'package:anx_reader/utils/get_path/databases_path.dart';
@@ -148,7 +149,8 @@ class Sync extends _$Sync {
     }
 
     if (remoteDb == null) {
-      return SyncDirection.upload;
+      return SyncDecisionHelper.resolveDirectionForEmptyRemote(
+          requestedDirection);
     }
 
     if (requestedDirection == SyncDirection.both) {
@@ -273,7 +275,19 @@ class Sync extends _$Sync {
     AnxLog.info('Sync ping success');
 
     // Determine sync direction
-    SyncDirection? finalDirection = await determineSyncDirection(direction);
+    SyncDirection? finalDirection;
+    try {
+      finalDirection = await determineSyncDirection(direction);
+    } catch (e, s) {
+      if (e is DioException && e.type == DioExceptionType.connectionError) {
+        AnxToast.show('Sync connection failed, check your network');
+        AnxLog.severe('Sync connection failed, connection error\n$e, $s');
+      } else {
+        AnxToast.show('Sync failed\n$e');
+        AnxLog.severe('Sync failed\n$e, $s');
+      }
+      return;
+    }
     if (finalDirection == null) {
       return; // User cancelled or no sync needed
     }
@@ -287,9 +301,9 @@ class Sync extends _$Sync {
     try {
       await syncDatabase(finalDirection);
 
-      if (await isCurrentEmpty()) {
+      if (SyncDecisionHelper.shouldInterceptEmptyCurrent(finalDirection) &&
+          await isCurrentEmpty()) {
         await _showSyncAbortedDialog();
-        changeState(state.copyWith(isSyncing: false));
         return;
       }
 
@@ -315,6 +329,10 @@ class Sync extends _$Sync {
         AnxToast.show(L10n.of(navigatorKey.currentContext!).webdavSyncComplete);
       }
     } catch (e, s) {
+      if (e is RemoteBackupNotFoundException) {
+        AnxLog.info('Sync aborted: $e');
+        return;
+      }
       if (e is DioException && e.type == DioExceptionType.connectionError) {
         AnxToast.show('Sync connection failed, check your network');
         AnxLog.severe('Sync connection failed, connection error\n$e, $s');
@@ -360,9 +378,9 @@ class Sync extends _$Sync {
     }).toList();
     List<String> totalLocalFiles = [...localBooks, ...localCovers];
 
-    // Abort if totalCurrentFiles is empty
-    if (totalCurrentFiles.isEmpty) {
-      await _showSyncAbortedDialog();
+    // Skip if totalCurrentFiles is empty
+    if (SyncDecisionHelper.canSkipFileSync(totalCurrentFiles)) {
+      AnxLog.info('Sync: No current files to sync, skipping file sync');
       return;
     }
 
@@ -451,8 +469,10 @@ class Sync extends _$Sync {
               return;
             }
           } else {
+            AnxLog.warning(
+                'Database sync aborted: Remote database does not exist');
             await _showSyncAbortedDialog();
-            return;
+            throw const RemoteBackupNotFoundException();
           }
           break;
 
