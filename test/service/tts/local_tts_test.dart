@@ -9,6 +9,7 @@ import 'package:anx_reader/service/tts/local_tts/local_voice_model.dart';
 import 'package:anx_reader/service/tts/local_tts/local_voice_model_manager.dart';
 import 'package:anx_reader/service/tts/models/tts_segment.dart';
 import 'package:anx_reader/service/tts/models/tts_sentence.dart';
+import 'package:anx_reader/service/tts/models/tts_voice.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,15 @@ class MockSystemTts extends BaseTts {
   bool initCalled = false;
   bool speakCalled = false;
   String? lastSpokenContent;
+
+  @override
+  bool get isPlaying => ttsStateNotifier.value == TtsStateEnum.playing;
+
+  @override
+  String? get currentVoiceText => lastSpokenContent;
+
+  @override
+  Future<List<TtsVoice>> getVoices() async => const [];
 
   @override
   final ValueNotifier<TtsStateEnum> ttsStateNotifier =
