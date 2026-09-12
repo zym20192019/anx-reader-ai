@@ -13,7 +13,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 // Current app database version
-const int currentDbVersion = 8;
+const int currentDbVersion = 9;
 
 const createBookSQL = '''
 CREATE TABLE tb_books (
@@ -26,6 +26,17 @@ CREATE TABLE tb_books (
   author TEXT,
   is_deleted INTEGER,
   description TEXT,
+  rating REAL,
+  group_id INTEGER,
+  file_md5 TEXT,
+  source_md5 TEXT,
+  source_file_path TEXT,
+  source_format TEXT,
+  cache_file_path TEXT,
+  cache_fingerprint TEXT,
+  source_text_offset INTEGER,
+  source_text_length INTEGER,
+  position_context TEXT,
   create_time TEXT,
   update_time TEXT
 )
@@ -71,6 +82,7 @@ CREATE TABLE tb_notes (
   chapter TEXT,
   type TEXT,
   color TEXT,
+  reader_note TEXT,
   create_time TEXT,
   update_time TEXT
 )
@@ -122,14 +134,15 @@ class DBHelper {
       case AnxPlatformEnum.ohos:
         final databasePath = await getAnxDataBasesPath();
         final path = join(databasePath, 'app_database.db');
-        return await openDatabase(
+        _database = await openDatabase(
           path,
           version: dbVersion,
           onCreate: (db, version) async {
-            onUpgradeDatabase(db, 0, version);
+            await _createCurrentSchema(db);
           },
           onUpgrade: onUpgradeDatabase,
         );
+        return _database!;
       case AnxPlatformEnum.ios:
       case AnxPlatformEnum.windows:
         sqfliteFfiInit();
@@ -139,16 +152,17 @@ class DBHelper {
         AnxLog.info('Database: database path: $databasePath');
         final path = join(databasePath, 'app_database.db');
 
-        return await databaseFactory.openDatabase(
+        _database = await databaseFactory.openDatabase(
           path,
           options: OpenDatabaseOptions(
             version: dbVersion,
             onCreate: (db, version) async {
-              onUpgradeDatabase(db, 0, version);
+              await _createCurrentSchema(db);
             },
             onUpgrade: onUpgradeDatabase,
           ),
         );
+        return _database!;
     }
   }
 
@@ -312,20 +326,29 @@ class DBHelper {
     return dbTime;
   }
 
+  Future<void> _createCurrentSchema(Database db) async {
+    await db.execute(createBookSQL);
+    await db.execute(createNoteSQL);
+    await db.execute(createThemeSQL);
+    await db.execute(createStyleSQL);
+    await db.execute(createReadingTimeSQL);
+    await db.execute(createGroupSQL);
+    await db.execute(primaryTheme1);
+    await db.execute(primaryTheme2);
+    await db.execute(
+      "INSERT INTO tb_groups (id, name, parent_id, create_time, update_time) "
+      "VALUES (0, 'Root', NULL, datetime('now'), datetime('now'))",
+    );
+  }
+
   Future<void> onUpgradeDatabase(
       Database db, int oldVersion, int newVersion) async {
     AnxLog.info('Database: upgrade database from $oldVersion to $newVersion');
     switch (oldVersion) {
       case 0:
         AnxLog.info('Database: create database version $newVersion');
-        await db.execute(createBookSQL);
-        await db.execute(createNoteSQL);
-        await db.execute(createThemeSQL);
-        await db.execute(createStyleSQL);
-        await db.execute(createReadingTimeSQL);
-        await db.execute(primaryTheme1);
-        await db.execute(primaryTheme2);
-        continue case1;
+        await _createCurrentSchema(db);
+        return;
       case1:
       case 1:
         // add a column (rating) to tb_books
@@ -429,11 +452,38 @@ class DBHelper {
       case7:
       case 7:
         // add a column (source_md5) to tb_books, null default
-        await db.execute("ALTER TABLE tb_books ADD COLUMN source_md5 TEXT");
+        await _addColumnIfNotExists(db, 'tb_books', 'source_md5', 'TEXT');
+        continue case8;
+      case8:
+      case 8:
+        // add source/cache compatibility columns to tb_books, null default
+        await _addColumnIfNotExists(db, 'tb_books', 'source_file_path', 'TEXT');
+        await _addColumnIfNotExists(db, 'tb_books', 'source_format', 'TEXT');
+        await _addColumnIfNotExists(db, 'tb_books', 'cache_file_path', 'TEXT');
+        await _addColumnIfNotExists(db, 'tb_books', 'cache_fingerprint', 'TEXT');
+        await _addColumnIfNotExists(
+            db, 'tb_books', 'source_text_offset', 'INTEGER');
+        await _addColumnIfNotExists(
+            db, 'tb_books', 'source_text_length', 'INTEGER');
+        await _addColumnIfNotExists(
+            db, 'tb_books', 'position_context', 'TEXT');
     }
 
     if (oldVersion != 0 && Prefs().webdavStatus) {
       updatedDB = true;
+    }
+  }
+
+  static Future<void> _addColumnIfNotExists(
+    Database db,
+    String table,
+    String column,
+    String type,
+  ) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = columns.any((col) => col['name'] == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
     }
   }
 }

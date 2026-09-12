@@ -46,12 +46,14 @@ class ReadingPage extends ConsumerStatefulWidget {
   const ReadingPage({
     super.key,
     required this.book,
+    this.readableFilePath,
     this.cfi,
     required this.initialThemes,
     this.heroTag,
   });
 
   final Book book;
+  final String? readableFilePath;
   final String? cfi;
   final List<ReadTheme> initialThemes;
   final String? heroTag;
@@ -861,6 +863,7 @@ class ReadingPageState extends ConsumerState<ReadingPage>
                                 EpubPlayer(
                                   key: epubPlayerKey,
                                   book: _book,
+                                  readableFilePath: widget.readableFilePath,
                                   cfi: widget.cfi,
                                   showOrHideAppBarAndBottomBar:
                                       showOrHideAppBarAndBottomBar,

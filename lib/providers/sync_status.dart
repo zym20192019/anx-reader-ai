@@ -72,7 +72,7 @@ class SyncStatus extends _$SyncStatus {
           await ref.read(syncProvider.notifier).listRemoteBookFiles();
       final remoteFilesIds = books
           .map((e) {
-            final filePath = e.filePath.split('/').last;
+            final filePath = resolveBookSyncPath(e).split('/').last;
             final isExist = remoteFiles.contains(filePath);
             return isExist ? e.id : null;
           })
@@ -105,7 +105,7 @@ class SyncStatus extends _$SyncStatus {
 
     final localFilesIds = books
         .map((e) {
-          final filePath = e.filePath.split('/').last;
+          final filePath = resolveBookSyncPath(e).split('/').last;
           final isExist = localFiles.contains(filePath);
           return isExist ? e.id : null;
         })
@@ -124,12 +124,12 @@ class SyncStatus extends _$SyncStatus {
     }
     try {
       return allBooksInBookShelf
-          .firstWhere((e) => filePath.contains(e.filePath))
+          .firstWhere((e) => filePath.contains(resolveBookSyncPath(e)))
           .id;
     } catch (e) {
       allBooksInBookShelf = await _listAllBooksInBookShelf();
       return allBooksInBookShelf
-          .firstWhere((e) => filePath.contains(e.filePath))
+          .firstWhere((e) => filePath.contains(resolveBookSyncPath(e)))
           .id;
     }
   }

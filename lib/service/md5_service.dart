@@ -6,6 +6,7 @@ import 'package:anx_reader/models/md5_calculating_result.dart';
 import 'package:anx_reader/models/md5_statistics.dart';
 import 'package:anx_reader/utils/log/common.dart';
 import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as path;
 
 class MD5Service {
   static Future<String?> calculateFileMd5(String filePath) async {
@@ -24,14 +25,20 @@ class MD5Service {
     }
   }
 
-  static Future<Book?> checkDuplicateBySourceMd5(String sourceMd5) async {
+  static Future<Book?> checkDuplicateBySourceMd5(
+    String sourceMd5, {
+    String? filePath,
+  }) async {
     final book = await bookDao.getBookBySourceMd5(sourceMd5);
-    if (book != null) {
-      return book;
+    if (book != null) return book;
+
+    // A legacy EPUB's file hash must never be treated as proof that it
+    // originated from TXT. Preserve the old fallback for non-TXT imports.
+    final isTxt = path.extension(filePath ?? '').toLowerCase() == '.txt';
+    if (!isTxt) {
+      return await bookDao.getLegacyBookByFileMd5(sourceMd5);
     }
-    // Fallback: for books imported before source_md5 existed (v7 or earlier),
-    // only check legacy records where source_md5 is null/empty.
-    return await bookDao.getLegacyBookByFileMd5(sourceMd5);
+    return null;
   }
 
   static Future<Book?> checkDuplicateByMd5(String md5) async {
@@ -109,7 +116,10 @@ class MD5Service {
       Book? duplicateBook;
 
       if (md5 != null) {
-        duplicateBook = await checkDuplicateBySourceMd5(md5);
+        duplicateBook = await checkDuplicateBySourceMd5(
+          md5,
+          filePath: filePath,
+        );
       }
 
       results.add(ImportFileCheck(

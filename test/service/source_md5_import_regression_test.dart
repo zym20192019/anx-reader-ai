@@ -14,8 +14,8 @@ import 'package:test/test.dart';
 /// creating fake in-memory DAO algorithms or asserting on source strings.
 void main() {
   group('Database Schema Constants', () {
-    test('currentDbVersion is bumped to 8 for source_md5 migration', () {
-      expect(currentDbVersion, 8);
+    test('currentDbVersion is at least 8 for source_md5 migration', () {
+      expect(currentDbVersion >= 8, isTrue);
     });
   });
 

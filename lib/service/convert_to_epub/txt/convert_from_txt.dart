@@ -49,8 +49,19 @@ String readFileWithEncoding(File file) {
   throw Exception('Convert: Failed to read file with any encoding');
 }
 
-String _normalizeLineBreaks(String input) {
+String normalizeTxtLineBreaks(String input) {
   return input.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+}
+
+/// Reads the TXT file with encoding detection and normalizes line breaks.
+String readNormalizedTxtContent(File file) {
+  final content = readFileWithEncoding(file);
+  return normalizeTxtLineBreaks(content);
+}
+
+/// Computes the normalized character/code-unit length of a TXT file.
+int getNormalizedTxtLength(File file) {
+  return readNormalizedTxtContent(file).length;
 }
 
 List<Section> _buildSectionsFromMatches({
@@ -128,8 +139,7 @@ Future<File> convertFromTxt(File file) async {
   AnxLog.info('convert from txt. title: $titleString, author: $authorString');
 
   // read file
-  String content = readFileWithEncoding(file);
-  content = _normalizeLineBreaks(content);
+  String content = readNormalizedTxtContent(file);
 
   // content = content.replaceAll(RegExp(r'(\n*|^)(\s|　)+'), '\n');
 

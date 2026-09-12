@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:anx_reader/config/shared_preference_provider.dart';
 import 'package:anx_reader/dao/book.dart';
 import 'package:anx_reader/dao/theme.dart';
 import 'package:anx_reader/enums/sync_direction.dart';
@@ -8,6 +9,7 @@ import 'package:anx_reader/enums/sync_trigger.dart';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/main.dart';
 import 'package:anx_reader/models/book.dart';
+import 'package:anx_reader/models/book_source.dart';
 import 'package:anx_reader/models/current_reading_state.dart';
 import 'package:anx_reader/page/home_page.dart';
 import 'package:anx_reader/page/iap_page.dart';
@@ -18,9 +20,14 @@ import 'package:anx_reader/providers/sync.dart';
 import 'package:anx_reader/providers/iap.dart';
 import 'package:anx_reader/providers/book_list.dart';
 import 'package:anx_reader/providers/toc_search.dart';
+import 'package:anx_reader/models/chapter_split_presets.dart';
+import 'package:anx_reader/service/book_filename_allocator.dart';
 import 'package:anx_reader/service/convert_to_epub/txt/convert_from_txt.dart';
 import 'package:anx_reader/service/md5_service.dart';
 import 'package:anx_reader/service/prepare_imported_file.dart';
+import 'package:anx_reader/service/txt_cache/txt_cache_key.dart';
+import 'package:anx_reader/service/txt_cache/txt_cache_manager.dart';
+import 'package:anx_reader/service/txt_cache/txt_position.dart';
 import 'package:anx_reader/utils/webView/anx_headless_webview.dart';
 import 'package:anx_reader/utils/env_var.dart';
 import 'package:anx_reader/utils/get_path/get_base_path.dart';
@@ -449,29 +456,76 @@ Future<void> importBook(
 }) async {
   final sourceFile = file;
   File? preparedFile;
+  final isTxt = isTxtSource(sourceFile) ||
+      isTxtSourceFormat(path.extension(sourceFile.path));
+
   try {
     final sourceMd5 = await MD5Service.calculateFileMd5(sourceFile.path);
-    preparedFile = await prepareImportedFile(
-      sourceFile,
-      convertTxt: convertFromTxt,
-    );
+    if (isTxt && (sourceMd5 == null || sourceMd5.trim().isEmpty)) {
+      throw StateError('Unable to calculate the TXT source hash');
+    }
+    String? cacheRelativePath;
+    String? cacheFingerprint;
+    int? sourceTextLength;
+
+    if (isTxt) {
+      final activeRule = Prefs().activeChapterSplitRule;
+      cacheFingerprint = generateTxtCacheFingerprint(
+        sourceMd5: sourceMd5,
+        rule: activeRule,
+        parserVersion: kTxtParserVersion,
+      );
+      final cacheManager = await TxtCacheManager.create();
+      if (cacheFingerprint == null || cacheFingerprint.isEmpty) {
+        throw StateError('Failed to generate TXT cache fingerprint');
+      }
+      preparedFile = await cacheManager.ensureCache(
+        source: sourceFile,
+        fingerprint: cacheFingerprint,
+        converter: convertFromTxt,
+      );
+      cacheRelativePath = cacheManager.relativeCachePathFor(cacheFingerprint);
+      try {
+        sourceTextLength = getNormalizedTxtLength(sourceFile);
+      } catch (_) {}
+    } else {
+      preparedFile = await prepareImportedFile(
+        sourceFile,
+        convertTxt: convertFromTxt,
+      );
+    }
+
+    final prepared = preparedFile;
+    if (prepared == null) {
+      throw StateError('Failed to prepare imported book file');
+    }
+
     final String? fileMd5;
-    if (preparedFile.path == sourceFile.path) {
+    if (isTxt) {
+      fileMd5 = sourceMd5;
+    } else if (prepared.path == sourceFile.path) {
       fileMd5 = sourceMd5;
     } else {
-      fileMd5 = await MD5Service.calculateFileMd5(preparedFile.path);
+      fileMd5 = await MD5Service.calculateFileMd5(prepared.path);
     }
+
     await getBookMetadata(
-      preparedFile,
+      prepared,
       md5: fileMd5,
       fileMd5: fileMd5,
       sourceMd5: sourceMd5,
       ref: ref,
+      actualSourceFile: isTxt ? sourceFile : null,
+      sourceFormat: isTxt ? 'txt' : null,
+      cacheFilePath: cacheRelativePath,
+      cacheFingerprint: cacheFingerprint,
+      sourceTextLength: sourceTextLength,
     );
     ref.read(bookListProvider.notifier).refresh();
   } finally {
     if (preparedFile != null &&
         preparedFile.path != sourceFile.path &&
+        !preparedFile.path.contains(TxtCacheManager.cacheDirectoryName) &&
         await preparedFile.exists()) {
       await preparedFile.delete();
     }
@@ -479,6 +533,211 @@ Future<void> importBook(
         await sourceFile.exists()) {
       await sourceFile.delete();
     }
+  }
+}
+
+/// Ensures a readable EPUB or document file exists for [book] and returns it.
+///
+/// For non-TXT formats (including legacy EPUB books), returns and validates [book.fileFullPath].
+/// For TXT books, resolves the source TXT file, calculates/updates source MD5,
+/// determines cache fingerprint using the active chapter split rule, and returns
+/// the valid cached EPUB file (lazily generating it via [TxtCacheManager.ensureCache]
+/// if not yet cached or if the rule/fingerprint has changed).
+/// Does NOT write the cache path into `file/` or the sync directory, and preserves
+/// [book.filePath] pointing to the formal TXT source.
+Future<File> ensureBookReadableFile(
+  Book book, {
+  TxtCacheManager? cacheManager,
+  TxtEpubConverter? converter,
+  dynamic splitRule,
+}) async {
+  final sourcePathHint = book.sourceFilePath?.trim().toLowerCase();
+  final filePathHint = book.filePath.trim().toLowerCase();
+  final isTxt = filePathHint.endsWith('.txt') ||
+      (sourcePathHint != null && sourcePathHint.endsWith('.txt')) ||
+      (isTxtSourceFormat(book.sourceFormat) &&
+          sourcePathHint != null &&
+          sourcePathHint.endsWith('.txt'));
+
+  if (!isTxt) {
+    final regularPath = File(book.fileFullPath).existsSync()
+        ? book.fileFullPath
+        : (File(book.filePath).existsSync() ? book.filePath : book.fileFullPath);
+    final regularFile = File(regularPath);
+    if (!await regularFile.exists()) {
+      throw FileSystemException('Book file not found', regularFile.path);
+    }
+    return regularFile;
+  }
+
+  String sourcePath;
+  if (book.sourceFilePath != null && book.sourceFilePath!.isNotEmpty) {
+    sourcePath = File(book.sourceFilePath!).existsSync()
+        ? book.sourceFilePath!
+        : getBasePath(book.sourceFilePath!);
+  } else {
+    sourcePath = File(book.filePath).existsSync()
+        ? book.filePath
+        : book.fileFullPath;
+  }
+
+  final sourceFile = File(sourcePath);
+  if (!await sourceFile.exists()) {
+    throw FileSystemException('Source TXT file not found', sourcePath);
+  }
+
+  bool needDbUpdate = false;
+  final previousSourceMd5 = book.sourceMd5?.trim();
+  final sourceMd5 = await MD5Service.calculateFileMd5(sourceFile.path);
+  if (sourceMd5 == null || sourceMd5.trim().isEmpty) {
+    throw StateError('Unable to calculate the TXT source hash');
+  }
+
+  final sourceChanged = previousSourceMd5 != null &&
+      previousSourceMd5.isNotEmpty &&
+      previousSourceMd5 != sourceMd5;
+  if (book.sourceMd5 != sourceMd5) {
+    book.sourceMd5 = sourceMd5;
+    needDbUpdate = true;
+  }
+  if (book.fileMd5 != sourceMd5) {
+    book.fileMd5 = sourceMd5;
+    needDbUpdate = true;
+  }
+
+  if (book.sourceFilePath == null || book.sourceFilePath!.trim().isEmpty) {
+    book.sourceFilePath = book.filePath;
+    needDbUpdate = true;
+  }
+  if (book.sourceFormat == null || book.sourceFormat!.trim().isEmpty) {
+    book.sourceFormat = 'txt';
+    needDbUpdate = true;
+  }
+
+  if (sourceChanged) {
+    // A changed source invalidates both the cached CFI and its derived context.
+    // Until a direct source-offset-to-CFI mapper exists, restart safely at 0
+    // instead of silently jumping into a potentially wrong chapter.
+    book.lastReadPosition = '';
+    book.sourceTextOffset = 0;
+    book.positionContext = null;
+    book.readingPercentage = 0.0;
+    needDbUpdate = true;
+  }
+
+  if (book.sourceTextLength == null || sourceChanged) {
+    try {
+      book.sourceTextLength = getNormalizedTxtLength(sourceFile);
+      needDbUpdate = true;
+    } catch (_) {}
+  }
+
+  final activeRule = splitRule ??
+      () {
+        try {
+          return Prefs().activeChapterSplitRule;
+        } catch (_) {
+          return getDefaultChapterSplitRule();
+        }
+      }();
+
+  final fingerprint = generateTxtCacheFingerprint(
+    sourceMd5: sourceMd5,
+    rule: activeRule,
+    parserVersion: kTxtParserVersion,
+  );
+
+  if (fingerprint == null || fingerprint.isEmpty) {
+    throw StateError('Failed to generate cache fingerprint for ${book.title}');
+  }
+
+  final cacheMgr = cacheManager ?? await TxtCacheManager.create();
+  final effectiveConverter = converter ?? convertFromTxt;
+
+  File cacheFile;
+  if (await cacheMgr.isValid(fingerprint)) {
+    cacheFile = cacheMgr.cacheFileFor(fingerprint);
+  } else {
+    cacheFile = await cacheMgr.ensureCache(
+      source: sourceFile,
+      fingerprint: fingerprint,
+      converter: effectiveConverter,
+    );
+  }
+
+  final relativeCachePath = cacheMgr.relativeCachePathFor(fingerprint);
+  if (book.cacheFingerprint != fingerprint ||
+      book.cacheFilePath != relativeCachePath) {
+    book.cacheFingerprint = fingerprint;
+    book.cacheFilePath = relativeCachePath;
+    needDbUpdate = true;
+  }
+
+  if (needDbUpdate && book.id > 0) {
+    try {
+      await bookDao.updateBook(book);
+    } catch (_) {}
+  }
+
+  return cacheFile;
+}
+
+/// Updates reading progress fields for a TXT book.
+///
+/// Retains [cfi] in [book.lastReadPosition] as a compatible cache CFI value.
+/// Computes [book.sourceTextOffset] by scaling normalized text length by percentage
+/// (clamped to code units), creates [book.positionContext] via [createContextHash],
+/// and recalibrates [book.readingPercentage] based on offset / sourceTextLength.
+///
+/// TODO: Direct CFI-to-source-offset mapping is not yet supported by foliate-js.
+/// This implementation establishes a safe minimal closed loop by mapping percentage
+/// to a UTF-16 code-unit source offset and anchoring it via [createContextHash].
+Future<void> updateTxtReadingProgress({
+  required Book book,
+  required String cfi,
+  required double percentage,
+  File? sourceFile,
+}) async {
+  book.lastReadPosition = cfi;
+
+  File? actualSource = sourceFile;
+  if (actualSource == null) {
+    String sourcePath;
+    if (book.sourceFilePath != null && book.sourceFilePath!.isNotEmpty) {
+      sourcePath = File(book.sourceFilePath!).existsSync()
+          ? book.sourceFilePath!
+          : getBasePath(book.sourceFilePath!);
+    } else {
+      sourcePath = File(book.filePath).existsSync()
+          ? book.filePath
+          : book.fileFullPath;
+    }
+    actualSource = File(sourcePath);
+  }
+
+  String? text;
+  if (book.sourceTextLength == null && await actualSource.exists()) {
+    try {
+      text = readNormalizedTxtContent(actualSource);
+      book.sourceTextLength = text.length;
+    } catch (e) {
+      AnxLog.warning(
+          'updateTxtReadingProgress: Failed to read normalized text: $e');
+    }
+  }
+
+  final length = book.sourceTextLength ?? (text?.length ?? 0);
+  if (length > 0) {
+    final safePct = percentage.clamp(0.0, 1.0).toDouble();
+    int offset = (safePct * length).round().clamp(0, length).toInt();
+    if (text != null && text.isNotEmpty) {
+      offset = alignOffsetToCodeUnitBoundary(text, offset);
+      book.positionContext = createContextHash(text, offset);
+    }
+    book.sourceTextOffset = offset;
+    book.readingPercentage = (offset / length).clamp(0.0, 1.0).toDouble();
+  } else {
+    book.readingPercentage = percentage.clamp(0.0, 1.0).toDouble();
   }
 }
 
@@ -494,8 +753,38 @@ Future<void> pushToReadingPage(
     return;
   }
 
-  if (!File(book.fileFullPath).existsSync()) {
+  final sourcePathHint = book.sourceFilePath?.trim().toLowerCase();
+  final filePathHint = book.filePath.trim().toLowerCase();
+  final isTxt = filePathHint.endsWith('.txt') ||
+      (sourcePathHint != null && sourcePathHint.endsWith('.txt')) ||
+      (isTxtSourceFormat(book.sourceFormat) &&
+          sourcePathHint != null &&
+          sourcePathHint.endsWith('.txt'));
+
+  final sourcePath = (isTxt &&
+          book.sourceFilePath != null &&
+          book.sourceFilePath!.isNotEmpty)
+      ? (File(book.sourceFilePath!).existsSync()
+          ? book.sourceFilePath!
+          : getBasePath(book.sourceFilePath!))
+      : (File(book.filePath).existsSync()
+          ? book.filePath
+          : book.fileFullPath);
+
+  if (!File(sourcePath).existsSync()) {
     ref.read(syncProvider.notifier).downloadBook(book);
+    return;
+  }
+
+  File readableFile;
+  try {
+    readableFile = await ensureBookReadableFile(book);
+  } catch (e, st) {
+    AnxLog.severe(
+        'pushToReadingPage: Failed to prepare readable file for ${book.title}: $e\n$st');
+    if (context.mounted) {
+      AnxToast.show(L10n.of(context).commonFailed);
+    }
     return;
   }
 
@@ -534,16 +823,20 @@ Future<void> pushToReadingPage(
       builder: (c) => ReadingPage(
         key: readingPageKey,
         book: book,
+        readableFilePath: readableFile.path,
         cfi: cfi,
         initialThemes: initialThemes,
         heroTag: heroTag,
       ),
     ),
-  ).then((_) {
+  ).then((_) async {
     AnxLog.info('ReadingPage: poped: ${book.title}');
     currentReading.finish();
     chapterContentBridge.state = null;
     tocSearch.clear();
+    // Progress writes are debounced while reading; refresh the bookshelf once
+    // after leaving so filters and sorting see the final persisted position.
+    await ref.read(bookListProvider.notifier).refresh();
     AnxLog.info('Pop successfully ReadingPage: ${book.title}');
   });
 }
@@ -554,13 +847,32 @@ void updateBookRating(Book book, double rating) {
 }
 
 Future<void> resetBookCover(Book book) async {
-  final file = File(book.fileFullPath);
+  final sourcePath = book.sourceFilePath?.trim();
+  final sourceFile = File(
+    sourcePath != null &&
+            sourcePath.isNotEmpty &&
+            File(sourcePath).existsSync()
+        ? sourcePath
+        : (sourcePath != null && sourcePath.isNotEmpty
+            ? getBasePath(sourcePath)
+            : book.fileFullPath),
+  );
+
+  final isTxt = isTxtSourceFormat(book.sourceFormat) ||
+      sourceFile.path.toLowerCase().endsWith('.txt');
+  final readableFile = isTxt ? await ensureBookReadableFile(book) : sourceFile;
+
   await getBookMetadata(
-    file,
+    readableFile,
     book: book,
     md5: book.fileMd5 ?? book.md5,
     fileMd5: book.fileMd5 ?? book.md5,
     sourceMd5: book.sourceMd5,
+    actualSourceFile: isTxt ? sourceFile : null,
+    sourceFormat: isTxt ? 'txt' : null,
+    cacheFilePath: isTxt ? book.cacheFilePath : null,
+    cacheFingerprint: isTxt ? book.cacheFingerprint : null,
+    sourceTextLength: isTxt ? book.sourceTextLength : null,
   );
 }
 
@@ -612,8 +924,9 @@ BookMd5Resolution resolveBookMd5OnReplace({
   required String? newProcessedFileMd5,
 }) {
   if (isTxt) {
+    final hash = newProcessedFileMd5 ?? newSourceFileMd5;
     return BookMd5Resolution(
-      fileMd5: newProcessedFileMd5,
+      fileMd5: hash,
       sourceMd5: newSourceFileMd5,
     );
   } else {
@@ -627,6 +940,59 @@ BookMd5Resolution resolveBookMd5OnReplace({
   }
 }
 
+/// Resolves the formal library relative destination path when replacing a book.
+/// For TXT, preserves the existing book's path if it ends with .txt, or switches
+/// extension to .txt without altering the base name directory structure.
+/// For non-TXT, creates a timestamped unique file name.
+String resolveReplaceFilePath({
+  required String existingFilePath,
+  required bool isTxt,
+  required String title,
+  required String extension,
+}) {
+  if (isTxt) {
+    if (existingFilePath.toLowerCase().endsWith('.txt')) {
+      return existingFilePath;
+    }
+    final base = path.withoutExtension(existingFilePath).replaceAll('\\', '/');
+    return '$base.txt';
+  } else {
+    final effectiveTitle =
+        (title == 'Unknown' || title.trim().isEmpty) ? 'book' : title;
+    final nameWithoutExtension =
+        '${effectiveTitle.length > 20 ? effectiveTitle.substring(0, 20) : effectiveTitle}-${DateTime.now().millisecondsSinceEpoch}'
+            .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+            .replaceAll('\n', '')
+            .replaceAll('\r', '')
+            .trim();
+    final normalizedExt = extension.startsWith('.') ? extension : '.$extension';
+    return 'file/$nameWithoutExtension$normalizedExt';
+  }
+}
+
+bool isExistingSourceBackedTxt(Book? book, bool importingTxt) {
+  if (!importingTxt || book == null) return false;
+  final sourcePath = book.sourceFilePath?.trim().toLowerCase();
+  final filePath = book.filePath.trim().toLowerCase();
+  // An explicit format alone is not sufficient: a legacy record can carry a
+  // hash while its only persisted file is an EPUB. Reuse only a real TXT path.
+  return (sourcePath != null && sourcePath.endsWith('.txt')) ||
+      filePath.endsWith('.txt');
+}
+
+/// Allocates the formal relative path for a newly imported TXT book.
+String allocateImportTxtRelativePath({
+  required String title,
+  required Iterable<String> existingPaths,
+}) {
+  final allocated = allocateBookFilename(
+    title: title,
+    extension: 'txt',
+    existingPaths: existingPaths,
+  );
+  return 'file/$allocated';
+}
+
 Future<void> saveBook(
   File file,
   String title,
@@ -637,44 +1003,94 @@ Future<void> saveBook(
   String? fileMd5,
   String? sourceMd5,
   Book? provideBook,
+  File? actualSourceFile,
+  String? sourceFormat,
+  String? cacheFilePath,
+  String? cacheFingerprint,
+  int? sourceTextOffset,
+  int? sourceTextLength,
+  String? positionContext,
 }) async {
-  final effectiveFileMd5 = fileMd5 ?? md5;
+  final actualSource = actualSourceFile ?? file;
+  final isTxt = isTxtSourceFormat(sourceFormat) ||
+      isTxtSourceFormat(path.extension(actualSource.path));
+
   final effectiveSourceMd5 = sourceMd5 ?? md5;
+  final effectiveFileMd5 = isTxt ? effectiveSourceMd5 : (fileMd5 ?? md5);
 
   // Extract original filename (without extension)
-  final fileNameWithoutExt = path.basenameWithoutExtension(file.path);
+  final fileNameWithoutExt = path.basenameWithoutExtension(actualSource.path);
 
   // Use original filename if title is invalid
   final effectiveTitle =
       (title == 'Unknown' || title.trim().isEmpty) ? fileNameWithoutExt : title;
 
-  final newBookName =
-      '${effectiveTitle.length > 20 ? effectiveTitle.substring(0, 20) : effectiveTitle}-${DateTime.now().millisecondsSinceEpoch}'
-          .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
-          .replaceAll('\n', '')
-          .replaceAll('\r', '')
-          .trim();
-
-  final extension = file.path.split('.').last;
-
   if (provideBook == null && effectiveSourceMd5 != null) {
     provideBook = await bookDao.getBookBySourceMd5(effectiveSourceMd5);
-    if (provideBook == null) {
+    // A legacy EPUB's file hash is not evidence that it originated from TXT.
+    // Only non-TXT imports retain the old file-hash compatibility fallback.
+    if (provideBook == null && !isTxt) {
       provideBook = await bookDao.getLegacyBookByFileMd5(effectiveSourceMd5);
     }
   }
 
-  final bool isExistingBook = provideBook != null;
-  final String dbFilePath;
-  if (isExistingBook) {
-    dbFilePath = provideBook.filePath;
-  } else {
-    dbFilePath = 'file/$newBookName.$extension';
-    final filePath = getBasePath(dbFilePath);
-    await file.copy(filePath);
+  // A source-backed TXT record must keep its TXT path. A legacy record whose
+  // file_path is an EPUB is never silently converted into a TXT record.
+  final canReuseExistingPath = isExistingSourceBackedTxt(provideBook, isTxt);
+  if (isTxt && provideBook != null && !canReuseExistingPath) {
+    provideBook = null;
   }
 
-  String? dbCoverPath = 'cover/$newBookName';
+  final bool isExistingBook = provideBook != null;
+  final fileDir = getFileDir();
+  if (!await fileDir.exists()) {
+    await fileDir.create(recursive: true);
+  }
+
+  final String dbFilePath;
+  final String coverBaseName;
+
+  if (isExistingBook) {
+    dbFilePath = provideBook.filePath;
+    coverBaseName = path.basenameWithoutExtension(dbFilePath);
+  } else if (isTxt) {
+    final existingFileNames = <String>{};
+    try {
+      for (final entity in fileDir.listSync()) {
+        existingFileNames.add(path.basename(entity.path));
+      }
+    } catch (_) {}
+    try {
+      final dbPaths = await bookDao.getCurrentSourceFiles();
+      for (final p in dbPaths) {
+        existingFileNames.add(BookFilenameAllocator.extractBasename(p));
+      }
+    } catch (_) {}
+
+    final allocatedFileName = allocateBookFilename(
+      title: effectiveTitle,
+      extension: 'txt',
+      existingPaths: existingFileNames,
+    );
+    dbFilePath = 'file/$allocatedFileName';
+    final targetPath = getBasePath(dbFilePath);
+    await actualSource.copy(targetPath);
+    coverBaseName = path.basenameWithoutExtension(allocatedFileName);
+  } else {
+    final extension = actualSource.path.split('.').last;
+    final newBookName =
+        '${effectiveTitle.length > 20 ? effectiveTitle.substring(0, 20) : effectiveTitle}-${DateTime.now().millisecondsSinceEpoch}'
+            .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+            .replaceAll('\n', '')
+            .replaceAll('\r', '')
+            .trim();
+    dbFilePath = 'file/$newBookName.$extension';
+    final targetPath = getBasePath(dbFilePath);
+    await file.copy(targetPath);
+    coverBaseName = newBookName;
+  }
+
+  String? dbCoverPath = 'cover/$coverBaseName';
   dbCoverPath = await saveImageToLocal(cover, dbCoverPath);
 
   final md5Resolution = resolveBookMd5OnSave(
@@ -683,6 +1099,46 @@ Future<void> saveBook(
     effectiveSourceMd5: effectiveSourceMd5,
     provideBook: provideBook,
   );
+
+  String? effectiveCacheFilePath = cacheFilePath ?? provideBook?.cacheFilePath;
+  String? effectiveCacheFingerprint =
+      cacheFingerprint ?? provideBook?.cacheFingerprint;
+  int? effectiveSourceTextLength =
+      sourceTextLength ?? provideBook?.sourceTextLength;
+
+  if (isTxt) {
+    if (effectiveCacheFingerprint == null || effectiveCacheFilePath == null) {
+      try {
+        final activeRule = Prefs().activeChapterSplitRule;
+        effectiveCacheFingerprint ??= generateTxtCacheFingerprint(
+          sourceMd5: md5Resolution.sourceMd5 ?? effectiveSourceMd5,
+          rule: activeRule,
+          parserVersion: kTxtParserVersion,
+        );
+        if (effectiveCacheFingerprint != null) {
+          final cacheMgr = await TxtCacheManager.create();
+          effectiveCacheFilePath ??=
+              cacheMgr.relativeCachePathFor(effectiveCacheFingerprint);
+        }
+      } catch (_) {}
+    }
+
+    if (effectiveSourceTextLength == null && await actualSource.exists()) {
+      try {
+        effectiveSourceTextLength = getNormalizedTxtLength(actualSource);
+      } catch (_) {}
+    }
+  }
+
+  final effectiveSourceFilePath = isTxt
+      ? (isExistingBook && provideBook?.sourceFilePath != null
+          ? provideBook!.sourceFilePath
+          : dbFilePath)
+      : dbFilePath;
+  final effectiveSourceFormat = isTxt
+      ? 'txt'
+      : (sourceFormat ??
+          BookSourceFormat.normalize(path.extension(actualSource.path)));
 
   Book book = Book(
       id: provideBook != null ? provideBook.id : -1,
@@ -699,6 +1155,13 @@ Future<void> saveBook(
       groupId: provideBook?.groupId ?? 0,
       fileMd5: md5Resolution.fileMd5,
       sourceMd5: md5Resolution.sourceMd5,
+      sourceFilePath: effectiveSourceFilePath,
+      sourceFormat: effectiveSourceFormat,
+      cacheFilePath: effectiveCacheFilePath,
+      cacheFingerprint: effectiveCacheFingerprint,
+      sourceTextOffset: sourceTextOffset ?? provideBook?.sourceTextOffset,
+      sourceTextLength: effectiveSourceTextLength,
+      positionContext: positionContext ?? provideBook?.positionContext,
       createTime: provideBook?.createTime ?? DateTime.now(),
       updateTime: DateTime.now());
 
@@ -715,6 +1178,12 @@ Future<void> getBookMetadata(
   String? fileMd5,
   String? sourceMd5,
   WidgetRef? ref,
+  File? actualSourceFile,
+  String? sourceFormat,
+  String? cacheFilePath,
+  String? cacheFingerprint,
+  int? sourceTextLength,
+  Future<void> Function(Map<String, dynamic> metadata)? onMetadataParsed,
 }) async {
   final String serverFileName = Server().setTempFile(file);
 
@@ -775,17 +1244,27 @@ Future<void> getBookMetadata(
                 // base64 cover
                 String cover = metadata['cover']?.toString() ?? '';
                 String description = metadata['description']?.toString() ?? '';
-                await saveBook(
-                  file,
-                  title,
-                  author,
-                  description,
-                  effectiveFileMd5,
-                  cover,
-                  fileMd5: effectiveFileMd5,
-                  sourceMd5: effectiveSourceMd5,
-                  provideBook: book,
-                );
+
+                if (onMetadataParsed != null) {
+                  await onMetadataParsed(metadata);
+                } else {
+                  await saveBook(
+                    file,
+                    title,
+                    author,
+                    description,
+                    effectiveFileMd5,
+                    cover,
+                    fileMd5: effectiveFileMd5,
+                    sourceMd5: effectiveSourceMd5,
+                    provideBook: book,
+                    actualSourceFile: actualSourceFile,
+                    sourceFormat: sourceFormat,
+                    cacheFilePath: cacheFilePath,
+                    cacheFingerprint: cacheFingerprint,
+                    sourceTextLength: sourceTextLength,
+                  );
+                }
                 ref?.read(bookListProvider.notifier).refresh();
                 if (!completer.isCompleted) {
                   completer.complete();

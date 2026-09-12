@@ -6,6 +6,7 @@ import 'package:anx_reader/dao/book.dart';
 import 'package:anx_reader/enums/hint_key.dart';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/models/book.dart';
+import 'package:anx_reader/models/book_source.dart';
 import 'package:anx_reader/page/book_detail.dart';
 import 'package:anx_reader/providers/sync.dart';
 import 'package:anx_reader/providers/book_list.dart';
@@ -14,6 +15,8 @@ import 'package:anx_reader/providers/sync_status.dart';
 import 'package:anx_reader/service/convert_to_epub/txt/convert_from_txt.dart';
 import 'package:anx_reader/service/md5_service.dart';
 import 'package:anx_reader/service/book.dart';
+import 'package:anx_reader/service/txt_cache/txt_cache_key.dart';
+import 'package:anx_reader/service/txt_cache/txt_cache_manager.dart';
 import 'package:anx_reader/utils/get_path/get_base_path.dart';
 import 'package:anx_reader/utils/share_file.dart';
 import 'package:anx_reader/utils/toast/common.dart';
@@ -44,8 +47,31 @@ class BookBottomSheet extends ConsumerWidget {
         updateTime: DateTime.now(),
       ));
       ref.read(bookListProvider.notifier).refresh();
-      File(book.fileFullPath).delete();
-      File(book.coverFullPath).delete();
+      final sourceFile = File(book.fileFullPath);
+      if (await sourceFile.exists()) {
+        await sourceFile.delete();
+      }
+      final coverFile = File(book.coverFullPath);
+      if (await coverFile.exists()) {
+        await coverFile.delete();
+      }
+
+      if (isTxtSourceFormat(book.sourceFormat) &&
+          isSafeCachePathToDelete(
+            book.cacheFilePath,
+            resolvedSyncPath: book.sourceFilePath ?? book.filePath,
+            filePath: book.filePath,
+          )) {
+        try {
+          final cacheFile =
+              await TxtCacheManager.resolveBookCacheFile(book.cacheFilePath);
+          if (cacheFile != null && await cacheFile.parent.exists()) {
+            await cacheFile.parent.delete(recursive: true);
+          }
+        } on ArgumentError catch (_) {
+          // Invalid cache metadata must not prevent book deletion.
+        }
+      }
     }
 
     void handleDetail(BuildContext context) {
@@ -191,63 +217,117 @@ class BookBottomSheet extends ConsumerWidget {
 
       try {
         final rawExtension = p.extension(newFile.name).toLowerCase();
-        final isTxt = rawExtension == '.txt';
+        final isTxt = isTxtSourceFormat(rawExtension) || rawExtension == '.txt';
         final newSourceMd5 = await MD5Service.calculateFileMd5(newFileObj.path);
 
-        File fileToProcess = newFileObj;
-        String extension = p.extension(newFile.name);
+        final String newRelativePath;
+        final String newDestPath;
+        final BookMd5Resolution md5Resolution;
+        String? cacheRelativePath;
+        String? cacheFingerprint;
+        int? sourceTextLength;
 
-        // Convert TXT to EPUB if needed
         if (isTxt) {
-          fileToProcess = await convertFromTxt(newFileObj);
-          extension = '.epub';
+          final activeRule = Prefs().activeChapterSplitRule;
+          cacheFingerprint = generateTxtCacheFingerprint(
+            sourceMd5: newSourceMd5,
+            rule: activeRule,
+            parserVersion: kTxtParserVersion,
+          );
+          final cacheManager = await TxtCacheManager.create();
+          if (cacheFingerprint != null && cacheFingerprint.isNotEmpty) {
+            await cacheManager.ensureCache(
+              source: newFileObj,
+              fingerprint: cacheFingerprint,
+              converter: convertFromTxt,
+            );
+            cacheRelativePath =
+                cacheManager.relativeCachePathFor(cacheFingerprint);
+          }
+          try {
+            sourceTextLength = getNormalizedTxtLength(newFileObj);
+          } catch (_) {}
+
+          newRelativePath = resolveReplaceFilePath(
+            existingFilePath: book.filePath,
+            isTxt: true,
+            title: book.title,
+            extension: '.txt',
+          );
+          newDestPath = getBasePath(newRelativePath);
+
+          // Copy raw TXT as formal file
+          await newFileObj.copy(newDestPath);
+
+          md5Resolution = resolveBookMd5OnReplace(
+            isTxt: true,
+            newSourceFileMd5: newSourceMd5,
+            newProcessedFileMd5: newSourceMd5,
+          );
+
+          final updatedBook = book.copyWith(
+            filePath: newRelativePath,
+            sourceFilePath: newRelativePath,
+            sourceFormat: 'txt',
+            cacheFilePath: cacheRelativePath,
+            cacheFingerprint: cacheFingerprint,
+            sourceTextLength: sourceTextLength,
+            sourceTextOffset: 0,
+            fileMd5: md5Resolution.fileMd5,
+            sourceMd5: md5Resolution.sourceMd5,
+            updateTime: DateTime.now(),
+          );
+          updatedBook.sourceMd5 = md5Resolution.sourceMd5;
+          await bookDao.updateBook(updatedBook);
+        } else {
+          File fileToProcess = newFileObj;
+          String extension = p.extension(newFile.name);
+
+          newRelativePath = resolveReplaceFilePath(
+            existingFilePath: book.filePath,
+            isTxt: false,
+            title: book.title,
+            extension: extension,
+          );
+          newDestPath = getBasePath(newRelativePath);
+
+          // Copy new file
+          await fileToProcess.copy(newDestPath);
+
+          // Calculate MD5 of destination file
+          String? newFileMd5 = await MD5Service.calculateFileMd5(newDestPath);
+
+          md5Resolution = resolveBookMd5OnReplace(
+            isTxt: false,
+            newSourceFileMd5: newSourceMd5,
+            newProcessedFileMd5: newFileMd5,
+          );
+
+          final normalizedExt = BookSourceFormat.normalize(extension);
+          final updatedBook = book.copyWith(
+            filePath: newRelativePath,
+            sourceFilePath: newRelativePath,
+            sourceFormat: normalizedExt.isNotEmpty ? normalizedExt : null,
+            fileMd5: md5Resolution.fileMd5,
+            sourceMd5: md5Resolution.sourceMd5,
+            updateTime: DateTime.now(),
+          );
+          // copyWith uses null as "keep existing" for compatibility. Explicitly
+          // clear TXT-only cache metadata when the replacement is non-TXT.
+          updatedBook.cacheFilePath = null;
+          updatedBook.cacheFingerprint = null;
+          updatedBook.sourceTextOffset = null;
+          updatedBook.sourceTextLength = null;
+          updatedBook.positionContext = null;
+          updatedBook.sourceMd5 = md5Resolution.sourceMd5;
+          await bookDao.updateBook(updatedBook);
         }
-
-        String title = book.title;
-        String nameWithoutExtension =
-            '${title.length > 20 ? title.substring(0, 20) : title}-${DateTime.now().millisecondsSinceEpoch}'
-                .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
-                .replaceAll('\n', '')
-                .replaceAll('\r', '')
-                .trim();
-        String newFileName = '$nameWithoutExtension$extension';
-        String newRelativePath = 'file/$newFileName';
-        String newDestPath = getBasePath(newRelativePath);
-
-        // Copy new file
-        await fileToProcess.copy(newDestPath);
-
-        // Calculate MD5 of destination file
-        String? newFileMd5 = await MD5Service.calculateFileMd5(newDestPath);
-
-        final md5Resolution = resolveBookMd5OnReplace(
-          isTxt: isTxt,
-          newSourceFileMd5: newSourceMd5,
-          newProcessedFileMd5: newFileMd5,
-        );
-
-        // Update DB
-        final updatedBook = book.copyWith(
-          filePath: newRelativePath,
-          fileMd5: md5Resolution.fileMd5,
-          sourceMd5: md5Resolution.sourceMd5,
-          updateTime: DateTime.now(),
-        );
-        updatedBook.sourceMd5 = md5Resolution.sourceMd5;
-        await bookDao.updateBook(updatedBook);
 
         // Delete old file if path is different
         if (book.fileFullPath != newDestPath) {
           final oldFile = File(book.fileFullPath);
           if (await oldFile.exists()) {
             await oldFile.delete();
-          }
-        }
-
-        // Clean up temporary file if TXT conversion happened
-        if (fileToProcess != newFileObj) {
-          if (await fileToProcess.exists()) {
-            await fileToProcess.delete();
           }
         }
 

@@ -1,5 +1,6 @@
 import 'package:anx_reader/dao/base_dao.dart';
 import 'package:anx_reader/models/book.dart';
+import 'package:anx_reader/models/book_source.dart';
 
 class BookDao extends BaseDao {
   BookDao();
@@ -56,6 +57,22 @@ class BookDao extends BaseDao {
   Future<List<String>> getCurrentBooks() async {
     final books = await selectNotDeleteBooks();
     return books.map((book) => book.filePath).toList(growable: false);
+  }
+
+  Future<List<String>> getCurrentSourceFiles() async {
+    final books = await selectNotDeleteBooks();
+    return books.map((book) {
+      final isTxt = isTxtSourceFormat(book.sourceFormat) ||
+          book.filePath.toLowerCase().endsWith('.txt') ||
+          (book.sourceFilePath != null &&
+              book.sourceFilePath!.toLowerCase().endsWith('.txt'));
+      if (isTxt &&
+          book.sourceFilePath != null &&
+          book.sourceFilePath!.isNotEmpty) {
+        return book.sourceFilePath!;
+      }
+      return book.filePath;
+    }).toList(growable: false);
   }
 
   Future<List<String>> getCurrentCover() async {

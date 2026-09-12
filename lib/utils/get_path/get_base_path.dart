@@ -60,7 +60,7 @@ Future<Directory> getAnxDocumentDir() async {
   return Directory(await getAnxDocumentsPath());
 }
 
-void initBasePath() async {
+Future<void> initBasePath() async {
   Directory appDocDir = await getAnxDocumentDir();
   documentPath = appDocDir.path;
   debugPrint('documentPath: $documentPath');
@@ -83,9 +83,9 @@ void initBasePath() async {
 }
 
 String getBasePath(String path) {
-  // the path that in database using "/"
-  path.replaceAll("/", Platform.pathSeparator);
-  return '$documentPath${Platform.pathSeparator}$path';
+  // Paths stored in the database use POSIX separators.
+  final normalizedPath = path.replaceAll('/', Platform.pathSeparator);
+  return '$documentPath${Platform.pathSeparator}$normalizedPath';
 }
 
 Directory getFontDir({String? path}) {

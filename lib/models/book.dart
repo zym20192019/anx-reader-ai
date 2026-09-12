@@ -14,6 +14,13 @@ class Book {
   int groupId;
   String? fileMd5;
   String? sourceMd5;
+  String? sourceFilePath;
+  String? sourceFormat;
+  String? cacheFilePath;
+  String? cacheFingerprint;
+  int? sourceTextOffset;
+  int? sourceTextLength;
+  String? positionContext;
   String? get md5 => fileMd5;
   set md5(String? val) => fileMd5 = val;
   DateTime createTime;
@@ -34,6 +41,13 @@ class Book {
       String? md5,
       String? fileMd5,
       this.sourceMd5,
+      this.sourceFilePath,
+      this.sourceFormat,
+      this.cacheFilePath,
+      this.cacheFingerprint,
+      this.sourceTextOffset,
+      this.sourceTextLength,
+      this.positionContext,
       required this.createTime,
       required this.updateTime})
       : fileMd5 = fileMd5 ?? md5;
@@ -76,6 +90,13 @@ class Book {
       'group_id': groupId,
       'file_md5': fileMd5,
       'source_md5': sourceMd5,
+      'source_file_path': sourceFilePath,
+      'source_format': sourceFormat,
+      'cache_file_path': cacheFilePath,
+      'cache_fingerprint': cacheFingerprint,
+      'source_text_offset': sourceTextOffset,
+      'source_text_length': sourceTextLength,
+      'position_context': positionContext,
       'create_time': createTime.toIso8601String(),
       'update_time': updateTime.toIso8601String(),
     };
@@ -96,6 +117,13 @@ class Book {
     String? md5,
     String? fileMd5,
     String? sourceMd5,
+    String? sourceFilePath,
+    String? sourceFormat,
+    String? cacheFilePath,
+    String? cacheFingerprint,
+    int? sourceTextOffset,
+    int? sourceTextLength,
+    String? positionContext,
     DateTime? createTime,
     DateTime? updateTime,
   }) {
@@ -113,6 +141,13 @@ class Book {
       groupId: groupId ?? this.groupId,
       fileMd5: fileMd5 ?? md5 ?? this.fileMd5,
       sourceMd5: sourceMd5 ?? this.sourceMd5,
+      sourceFilePath: sourceFilePath ?? this.sourceFilePath,
+      sourceFormat: sourceFormat ?? this.sourceFormat,
+      cacheFilePath: cacheFilePath ?? this.cacheFilePath,
+      cacheFingerprint: cacheFingerprint ?? this.cacheFingerprint,
+      sourceTextOffset: sourceTextOffset ?? this.sourceTextOffset,
+      sourceTextLength: sourceTextLength ?? this.sourceTextLength,
+      positionContext: positionContext ?? this.positionContext,
       createTime: createTime ?? this.createTime,
       updateTime: updateTime ?? this.updateTime,
     );
@@ -133,6 +168,13 @@ class Book {
       groupId: map['group_id'] as int? ?? 0,
       fileMd5: map['file_md5'] as String?,
       sourceMd5: map['source_md5'] as String?,
+      sourceFilePath: map['source_file_path'] as String?,
+      sourceFormat: map['source_format'] as String?,
+      cacheFilePath: map['cache_file_path'] as String?,
+      cacheFingerprint: map['cache_fingerprint'] as String?,
+      sourceTextOffset: map['source_text_offset'] as int?,
+      sourceTextLength: map['source_text_length'] as int?,
+      positionContext: map['position_context'] as String?,
       createTime: DateTime.parse(map['create_time'] as String),
       updateTime: DateTime.parse(map['update_time'] as String),
     );

@@ -12,6 +12,7 @@ import 'package:anx_reader/enums/writing_mode.dart';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/main.dart';
 import 'package:anx_reader/models/book.dart';
+import 'package:anx_reader/models/book_source.dart';
 import 'package:anx_reader/models/book_style.dart';
 import 'package:anx_reader/models/bookmark.dart';
 import 'package:anx_reader/models/font_model.dart';
@@ -27,6 +28,7 @@ import 'package:anx_reader/providers/book_toc.dart';
 import 'package:anx_reader/providers/bookmark.dart';
 import 'package:anx_reader/providers/chapter_content_bridge.dart';
 import 'package:anx_reader/providers/current_reading.dart';
+import 'package:anx_reader/service/book.dart';
 import 'package:anx_reader/service/book_player/book_player_server.dart';
 import 'package:anx_reader/providers/toc_search.dart';
 import 'package:anx_reader/service/tts/base_tts.dart';
@@ -58,6 +60,7 @@ import 'minute_clock.dart';
 
 class EpubPlayer extends ConsumerStatefulWidget {
   final Book book;
+  final String? readableFilePath;
   final String? cfi;
   final Function showOrHideAppBarAndBottomBar;
   final Function onLoadEnd;
@@ -68,6 +71,7 @@ class EpubPlayer extends ConsumerStatefulWidget {
       {super.key,
       required this.showOrHideAppBarAndBottomBar,
       required this.book,
+      this.readableFilePath,
       this.cfi,
       required this.onLoadEnd,
       required this.initialThemes,
@@ -108,6 +112,44 @@ class EpubPlayerState extends ConsumerState<EpubPlayer>
   Timer? _scrollDebounceTimer;
   double _accumulatedScrollDelta = 0;
   static const double _scrollThreshold = 50.0;
+
+  // Persist progress after a short quiet period instead of writing on every
+  // relocate event. The latest position is flushed again when the reader exits.
+  Timer? _progressSaveTimer;
+  bool _progressSaveRequested = false;
+  bool _progressSaveInFlight = false;
+
+  void _scheduleProgressSave() {
+    _progressSaveRequested = true;
+    _progressSaveTimer?.cancel();
+    _progressSaveTimer = Timer(const Duration(seconds: 3), () {
+      _progressSaveTimer = null;
+      _flushProgressSave();
+    });
+  }
+
+  Future<void> _flushProgressSave({bool force = false}) async {
+    if (!force && !_progressSaveRequested) return;
+    if (_progressSaveInFlight) return;
+
+    _progressSaveRequested = false;
+    _progressSaveInFlight = true;
+    try {
+      await saveReadingProgress();
+    } finally {
+      _progressSaveInFlight = false;
+      if (_progressSaveRequested) {
+        if (mounted) {
+          _scheduleProgressSave();
+        } else {
+          // dispose() cannot await async work; flush the final queued position
+          // without scheduling another timer after the widget is gone.
+          _progressSaveRequested = false;
+          await saveReadingProgress();
+        }
+      }
+    }
+  }
 
   // to know anytime if we are on top of navigation stack
   bool get _isTopOfNavigationStack =>
@@ -660,7 +702,7 @@ class EpubPlayerState extends ConsumerState<EpubPlayer>
                 chapterTotalPages: chapterTotalPages,
               );
           widget.updateParent();
-          saveReadingProgress();
+          _scheduleProgressSave();
           readingPageKey.currentState?.resetAwakeTimer();
         });
     controller.addJavaScriptHandler(
@@ -964,16 +1006,31 @@ class EpubPlayerState extends ConsumerState<EpubPlayer>
     Book book = widget.book;
     book.lastReadPosition = cfi;
     book.readingPercentage = percentage;
-    await bookDao.updateBook(book);
-    if (mounted) {
-      ref.read(bookListProvider.notifier).refresh();
+
+    final isTxt = isTxtSourceFormat(book.sourceFormat) ||
+        book.filePath.toLowerCase().endsWith('.txt') ||
+        (book.sourceFilePath != null &&
+            book.sourceFilePath!.toLowerCase().endsWith('.txt'));
+
+    if (isTxt) {
+      await updateTxtReadingProgress(
+        book: book,
+        cfi: cfi,
+        percentage: percentage,
+      );
     }
+
+    await bookDao.updateBook(book);
   }
 
   @override
   void dispose() {
     _scrollDebounceTimer?.cancel();
+    _progressSaveTimer?.cancel();
+    _progressSaveRequested = false;
     _animationController?.dispose();
+    // The final write is intentionally fire-and-forget because dispose cannot
+    // await asynchronous database work.
     saveReadingProgress();
     removeOverlay();
     super.dispose();
@@ -1234,7 +1291,9 @@ class EpubPlayerState extends ConsumerState<EpubPlayer>
 
   @override
   Widget build(BuildContext context) {
-    String uri = Uri.encodeComponent(widget.book.fileFullPath);
+    final effectivePath =
+        widget.readableFilePath ?? widget.book.fileFullPath;
+    String uri = Uri.encodeComponent(effectivePath);
     String url = 'http://127.0.0.1:${Server().port}/book/$uri';
     String initialCfi = widget.cfi ?? widget.book.lastReadPosition;
 

@@ -50,13 +50,13 @@ Future<void> main() async {
 
   // If no migration needed, initialize paths normally
   if (!_needsMigration) {
-    initBasePath();
-    AnxLog.init();
-    AnxError.init();
+    await initBasePath();
+    await AnxLog.init();
+    await AnxError.init();
     await DBHelper().initDB();
   }
 
-  Server().start();
+  await Server().start();
 
   audioHandler = await AudioService.init(
     builder: () => TtsHandler(),
@@ -176,7 +176,7 @@ class _MyAppState extends ConsumerState<MyApp>
       }
     } else if (state == AppLifecycleState.resumed) {
       if (AnxPlatform.isIOS) {
-        Server().start();
+        await Server().start();
       }
     }
   }
@@ -240,9 +240,9 @@ class _MigrationWrapperState extends State<_MigrationWrapper> {
 
   Future<void> _onMigrationComplete() async {
     // Initialize paths and DB after migration
-    initBasePath();
-    AnxLog.init();
-    AnxError.init();
+    await initBasePath();
+    await AnxLog.init();
+    await AnxError.init();
     await DBHelper().initDB();
 
     if (mounted) {

@@ -5,6 +5,7 @@ import 'package:anx_reader/enums/sync_trigger.dart';
 import 'package:anx_reader/l10n/generated/L10n.dart';
 import 'package:anx_reader/main.dart';
 import 'package:anx_reader/models/book.dart';
+import 'package:anx_reader/models/book_source.dart';
 import 'package:anx_reader/models/remote_file.dart';
 import 'package:anx_reader/models/sync_state_model.dart';
 import 'package:anx_reader/providers/book_list.dart';
@@ -13,6 +14,7 @@ import 'package:anx_reader/providers/tb_groups.dart';
 import 'package:anx_reader/service/sync/sync_client_factory.dart';
 import 'package:anx_reader/service/sync/sync_client_base.dart';
 import 'package:anx_reader/service/database_sync_manager.dart';
+import 'package:anx_reader/service/txt_cache/txt_cache_manager.dart';
 import 'package:anx_reader/dao/database.dart';
 import 'package:anx_reader/utils/get_path/databases_path.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -29,6 +31,79 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'sync.g.dart';
+
+/// Helper to resolve the canonical sync file path for a [Book].
+///
+/// For TXT books (determined by [Book.sourceFormat], file extension, etc.),
+/// this returns [Book.sourceFilePath] if available and non-empty;
+/// otherwise it falls back to [Book.filePath] to support legacy unmigrated records.
+/// For non-TXT books, it always returns [Book.filePath].
+/// Cached EPUB paths ([Book.cacheFilePath]) must NEVER be returned as canonical sync files.
+String resolveBookSyncPath(Book book) {
+  final isTxt = isTxtSourceFormat(book.sourceFormat) ||
+      book.filePath.toLowerCase().endsWith('.txt') ||
+      (book.sourceFilePath != null &&
+          book.sourceFilePath!.toLowerCase().endsWith('.txt'));
+
+  if (isTxt &&
+      book.sourceFilePath != null &&
+      book.sourceFilePath!.trim().isNotEmpty) {
+    return book.sourceFilePath!.trim();
+  }
+  return book.filePath;
+}
+
+/// Helper to convert a relative file path (e.g. `file/foo.txt` or `cover/bar.png`)
+/// into the corresponding remote path under `anx/data/`.
+String toRemoteDataPath(String relativePath) {
+  final normalized = relativePath.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+  return 'anx/data/$normalized';
+}
+
+/// Helper to filter out historical remote EPUB files and cache artifacts
+/// from remote orphan deletion.
+///
+/// Under the source-file-only sync model, remote `file/*.epub` files are preserved
+/// to prevent deleting historical EPUB copies from older sync versions or dual-format setups.
+/// Returns true if the remote relative path can be safely pruned when missing from [totalCurrentFiles].
+bool shouldPruneRemoteOrphan(String remoteRelativePath) {
+  final normalized = remoteRelativePath.replaceAll('\\', '/').toLowerCase();
+  // Never prune remote epubs under file/
+  if (normalized.startsWith('file/') && normalized.endsWith('.epub')) {
+    return false;
+  }
+  return true;
+}
+
+/// Helper to determine if a cache path is safe to delete.
+///
+/// Safety rules:
+/// - Must not be empty or null
+/// - Must not be identical to sourceFilePath or filePath
+/// - Must point to a generated EPUB inside the dedicated `txt_epub` cache.
+bool isSafeCachePathToDelete(
+  String? cachePath, {
+  required String resolvedSyncPath,
+  required String filePath,
+}) {
+  if (cachePath == null || cachePath.trim().isEmpty) return false;
+  final normalizedCache = cachePath.replaceAll('\\', '/').trim();
+  final normalizedSync = resolvedSyncPath.replaceAll('\\', '/').trim();
+  final normalizedFile = filePath.replaceAll('\\', '/').trim();
+
+  if (normalizedCache == normalizedSync || normalizedCache == normalizedFile) {
+    return false;
+  }
+
+  final cacheMarker = '${TxtCacheManager.cacheDirectoryName}/';
+  final markerIndex = normalizedCache.indexOf(cacheMarker);
+  if (markerIndex < 0) return false;
+
+  final cacheRelative = normalizedCache.substring(markerIndex);
+  return RegExp(
+    r'^txt_epub/[A-Za-z0-9._-]+/generated\.epub$',
+  ).hasMatch(cacheRelative);
+}
 
 @Riverpod(keepAlive: true)
 class Sync extends _$Sync {
@@ -333,7 +408,7 @@ class Sync extends _$Sync {
     if (client == null) return;
 
     AnxLog.info('Sync: syncFiles');
-    List<String> currentBooks = await bookDao.getCurrentBooks();
+    List<String> currentBooks = await bookDao.getCurrentSourceFiles();
     List<String> currentCover = await bookDao.getCurrentCover();
 
     List<String> remoteBooksName = [];
@@ -384,19 +459,16 @@ class Sync extends _$Sync {
       }
     }
 
-    // Remove remote files not in database
+    // Remove remote files not in database (never delete historical remote EPUBs under source-only sync)
     for (var file in totalRemoteFiles) {
-      if (!totalCurrentFiles.contains(file)) {
+      if (!totalCurrentFiles.contains(file) && shouldPruneRemoteOrphan(file)) {
         await client.remove('anx/data/$file');
       }
     }
 
-    // Remove local files not in database
-    for (var file in totalLocalFiles) {
-      if (!totalCurrentFiles.contains(file)) {
-        await io.File(getBasePath(file)).delete();
-      }
-    }
+    // Do not delete local files here. In source-only mode an existing local
+    // EPUB may be a legacy artifact that must remain auditable and recoverable.
+    // Explicit book deletion/replacement owns its own cleanup.
     ref.read(syncStatusProvider.notifier).refresh();
   }
 
@@ -590,15 +662,45 @@ class Sync extends _$Sync {
 
   Future<void> releaseBook(Book book) async {
     final syncStatus = await ref.read(syncStatusProvider.future);
+    final syncPath = resolveBookSyncPath(book);
+    final isTxt = isTxtSourceFormat(book.sourceFormat) ||
+        book.filePath.toLowerCase().endsWith('.txt') ||
+        (book.sourceFilePath != null &&
+            book.sourceFilePath!.toLowerCase().endsWith('.txt'));
 
-    Future<void> deleteLocalBook() async {
-      await io.File(getBasePath(book.filePath)).delete();
+    Future<void> deleteLocalFiles() async {
+      // 1. Delete canonical local source / file
+      final localFile = io.File(getBasePath(syncPath));
+      if (await localFile.exists()) {
+        await localFile.delete();
+      }
+
+      // 2. For TXT, also delete local cache file if safe
+      if (isTxt &&
+          isSafeCachePathToDelete(
+            book.cacheFilePath,
+            resolvedSyncPath: syncPath,
+            filePath: book.filePath,
+          )) {
+        try {
+          final cacheFile =
+              await TxtCacheManager.resolveBookCacheFile(book.cacheFilePath);
+          if (cacheFile != null && await cacheFile.exists()) {
+            // The marker lives beside the EPUB. Remove the whole fingerprint
+            // directory so a released book cannot leave a misleading cache.
+            await cacheFile.parent.delete(recursive: true);
+          }
+        } on ArgumentError catch (e) {
+          // A malformed cache metadata value must never block source release.
+          AnxLog.warning('Skipping invalid TXT cache path: $e');
+        }
+      }
     }
 
-    Future<void> uploadBook() async {
+    Future<void> uploadCanonicalBook() async {
       try {
-        final remotePath = 'anx/data/${book.filePath}';
-        final localPath = getBasePath(book.filePath);
+        final remotePath = toRemoteDataPath(syncPath);
+        final localPath = getBasePath(syncPath);
         await uploadFile(localPath, remotePath);
       } catch (e) {
         AnxToast.show(
@@ -613,12 +715,12 @@ class Sync extends _$Sync {
           L10n.of(navigatorKey.currentContext!).bookSyncStatusSpaceReleased);
       return;
     } else if (syncStatus.both.contains(book.id)) {
-      await deleteLocalBook();
+      await deleteLocalFiles();
       ref.read(syncStatusProvider.notifier).refresh();
     } else {
       try {
-        await uploadBook();
-        await deleteLocalBook();
+        await uploadCanonicalBook();
+        await deleteLocalFiles();
       } catch (e) {
         AnxToast.show(
             L10n.of(navigatorKey.currentContext!).bookSyncStatusUploadFailed);
@@ -665,10 +767,11 @@ class Sync extends _$Sync {
 
   Future<void> _downloadBook(Book book) async {
     try {
+      final syncPath = resolveBookSyncPath(book);
       AnxToast.show(L10n.of(navigatorKey.currentContext!)
-          .bookSyncStatusDownloadingBook(book.filePath));
-      final remotePath = 'anx/data/${book.filePath}';
-      final localPath = getBasePath(book.filePath);
+          .bookSyncStatusDownloadingBook(syncPath));
+      final remotePath = toRemoteDataPath(syncPath);
+      final localPath = getBasePath(syncPath);
       await downloadFile(remotePath, localPath);
     } catch (e) {
       AnxToast.show(
