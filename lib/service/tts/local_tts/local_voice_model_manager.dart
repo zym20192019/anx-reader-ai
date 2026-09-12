@@ -149,13 +149,39 @@ class LocalVoiceModelManager {
     void Function(int received, int total)? onProgress,
   }) async {
     // If download is already in progress, join the existing future
-    if (_activeDownloads.containsKey(model.id)) {
-      return await _activeDownloads[model.id]!;
+    final existing = _activeDownloads[model.id];
+    if (existing != null) {
+      return await existing;
     }
 
-    final completer = Completer<void>();
-    _activeDownloads[model.id] = completer.future;
+    final cancelToken = CancelToken();
+    _activeCancelTokens[model.id] = cancelToken;
 
+    final task = _performDownloadAndInstall(
+      model,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+    _activeDownloads[model.id] = task;
+
+    try {
+      await task;
+    } finally {
+      // Clean up maps only if this invocation still owns the active task entry
+      if (identical(_activeDownloads[model.id], task)) {
+        _activeDownloads.remove(model.id);
+      }
+      if (identical(_activeCancelTokens[model.id], cancelToken)) {
+        _activeCancelTokens.remove(model.id);
+      }
+    }
+  }
+
+  Future<void> _performDownloadAndInstall(
+    LocalVoiceModel model, {
+    required CancelToken cancelToken,
+    void Function(int received, int total)? onProgress,
+  }) async {
     final statusNotifier = getStatusNotifier(model);
     final progressNotifier = getDownloadProgress(model);
 
@@ -165,8 +191,6 @@ class LocalVoiceModelManager {
     final tempDir = await getTempDownloadsDir();
     final tempArchive = File(p.join(tempDir.path, '${model.id}.download.tmp'));
     final stagingDir = Directory(p.join(tempDir.path, '${model.id}_staging'));
-    final cancelToken = CancelToken();
-    _activeCancelTokens[model.id] = cancelToken;
 
     try {
       // 1. Clean previous partial downloads or staging
@@ -264,7 +288,6 @@ class LocalVoiceModelManager {
       statusNotifier.value = ModelInstallStatus.installed;
       progressNotifier.value = 1.0;
       AnxLog.info('Successfully installed TTS model ${model.id}');
-      completer.complete();
     } catch (e) {
       final isCancelled = cancelToken.isCancelled ||
           (e is DioException && CancelToken.isCancel(e)) ||
@@ -291,18 +314,7 @@ class LocalVoiceModelManager {
         } catch (_) {}
       }
 
-      if (!completer.isCompleted) {
-        completer.completeError(e);
-      }
       rethrow;
-    } finally {
-      // Clean up maps only if this invocation still owns the active task entry
-      if (identical(_activeDownloads[model.id], completer.future)) {
-        _activeDownloads.remove(model.id);
-      }
-      if (identical(_activeCancelTokens[model.id], cancelToken)) {
-        _activeCancelTokens.remove(model.id);
-      }
     }
   }
 

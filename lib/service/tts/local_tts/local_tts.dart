@@ -19,7 +19,12 @@ import 'package:flutter/material.dart';
 class LocalTts extends BaseTts {
   static final LocalTts _instance = LocalTts._internal();
 
-  factory LocalTts() => _instance;
+  factory LocalTts({LocalVoiceModelManager? modelManager}) {
+    if (modelManager != null) {
+      _instance._modelManager = modelManager;
+    }
+    return _instance;
+  }
 
   LocalTts._internal();
 
@@ -57,7 +62,15 @@ class LocalTts extends BaseTts {
   bool _shouldStop = false;
 
   final LocalTtsProvider provider = LocalTtsProvider();
-  final LocalVoiceModelManager modelManager = LocalVoiceModelManager();
+  LocalVoiceModelManager _modelManager = LocalVoiceModelManager();
+
+  LocalVoiceModelManager get modelManager => _modelManager;
+
+  set modelManager(LocalVoiceModelManager manager) => _modelManager = manager;
+
+  @visibleForTesting
+  set modelManagerForTesting(LocalVoiceModelManager manager) =>
+      _modelManager = manager;
 
   @override
   final ValueNotifier<TtsStateEnum> ttsStateNotifier =
@@ -436,14 +449,17 @@ class LocalTts extends BaseTts {
       return;
     }
 
+    if (!isInit) {
+      throw StateError('离线自然朗读未初始化阅读回调');
+    }
+
     final isInstalled =
         await modelManager.isModelInstalled(LocalVoiceModel.defaultChineseModel);
     if (!isInstalled) {
       AnxLog.warning(
           'Local TTS model not installed, falling back to System TTS');
       final systemTts = SystemTts();
-      if (isInit &&
-          getHereFunction != null &&
+      if (getHereFunction != null &&
           getNextTextFunction != null &&
           getPrevTextFunction != null) {
         await systemTts.init(
@@ -455,10 +471,6 @@ class LocalTts extends BaseTts {
         return;
       }
       throw StateError('离线自然朗读声音包尚未安装，且未初始化阅读回调');
-    }
-
-    if (!isInit) {
-      throw StateError('离线自然朗读未初始化阅读回调');
     }
 
     _shouldStop = false;

@@ -1,16 +1,26 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:anx_reader/service/tts/base_tts.dart';
 import 'package:anx_reader/service/tts/local_tts/local_tts.dart';
 import 'package:anx_reader/service/tts/local_tts/local_tts_provider.dart';
+import 'package:anx_reader/service/tts/local_tts/local_voice_model_manager.dart';
 import 'package:anx_reader/service/tts/models/tts_sentence.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  late Directory testTempDir;
+
   setUp(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
-    final localTts = LocalTts();
+    testTempDir = Directory.systemTemp.createTempSync('anx_local_tts_test_');
+    final localTts = LocalTts(
+      modelManager: LocalVoiceModelManager.withDirs(
+        getBaseDir: () async => testTempDir,
+        getTempDir: () async => testTempDir,
+      ),
+    );
     await localTts.stop();
     localTts.isInit = false;
     localTts.getHereFunction = null;
@@ -27,6 +37,12 @@ void main() {
     localTts.getNextTextFunction = null;
     localTts.getPrevTextFunction = null;
     localTts.hasReachedEofForTesting = false;
+    localTts.modelManager = LocalVoiceModelManager();
+    if (testTempDir.existsSync()) {
+      try {
+        testTempDir.deleteSync(recursive: true);
+      } catch (_) {}
+    }
   });
 
   group('LocalTts Sentence Parsing & Contract', () {

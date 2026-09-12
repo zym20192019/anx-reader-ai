@@ -378,13 +378,15 @@ void main() {
       );
 
       final downloadFuture = manager.downloadAndInstall(model);
-      await Future.delayed(const Duration(milliseconds: 20));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final expectation = expectLater(
+        downloadFuture,
+        throwsA(isA<DioException>()),
+      );
 
       manager.cancelDownload(model);
-
-      try {
-        await downloadFuture;
-      } catch (_) {}
+      await expectation;
 
       // Cancellation must result in notDownloaded, NOT error!
       final statusNotifier = manager.getStatusNotifier(model);
