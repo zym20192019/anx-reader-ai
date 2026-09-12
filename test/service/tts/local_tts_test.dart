@@ -9,6 +9,7 @@ import 'package:anx_reader/service/tts/local_tts/local_voice_model.dart';
 import 'package:anx_reader/service/tts/local_tts/local_voice_model_manager.dart';
 import 'package:anx_reader/service/tts/models/tts_segment.dart';
 import 'package:anx_reader/service/tts/models/tts_sentence.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
