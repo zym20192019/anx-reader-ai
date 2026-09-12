@@ -234,6 +234,12 @@ void main() {
     localTts.nextSectionHandlerForTesting = null;
     localTts.providerForTesting = LocalTtsProvider();
     localTts.hasReachedEofForTesting = false;
+    localTts.hasFetchedInitialForTesting = false;
+    localTts.resetBufferForTesting();
+    LocalVoiceModelManager.setDirsForTesting(
+      getBaseDir: () async => testTempDir,
+      getTempDir: () async => testTempDir,
+    );
   });
 
   tearDown(() async {
@@ -252,7 +258,13 @@ void main() {
     localTts.nextSectionHandlerForTesting = null;
     localTts.providerForTesting = LocalTtsProvider();
     localTts.hasReachedEofForTesting = false;
+    localTts.hasFetchedInitialForTesting = false;
+    localTts.resetBufferForTesting();
     localTts.modelManager = LocalVoiceModelManager();
+    LocalVoiceModelManager.setDirsForTesting(
+      getBaseDir: null,
+      getTempDir: null,
+    );
     if (testTempDir.existsSync()) {
       try {
         testTempDir.deleteSync(recursive: true);
@@ -600,16 +612,18 @@ void main() {
         bool includeCurrent = false,
         int offset = 1,
       }) async {
-        capturedIncludeCurrent = includeCurrent;
-        capturedOffset = offset;
+        capturedIncludeCurrent ??= includeCurrent;
+        capturedOffset ??= offset;
         return [
           const TtsSentence(text: '首句内容', cfi: 'cfi_first'),
         ];
       };
 
       final mockEngine = MockLocalTtsEngine(delay: Duration.zero);
-      localTts.providerForTesting =
-          LocalTtsProvider.withEngine(engine: mockEngine);
+      localTts.providerForTesting = LocalTtsProvider.withEngine(
+        modelManager: localTts.modelManager,
+        engine: mockEngine,
+      );
 
       final prefetcherFuture = localTts.startPrefetcherForTesting();
       await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -650,8 +664,10 @@ void main() {
 
       final mockEngine =
           MockLocalTtsEngine(delay: const Duration(milliseconds: 30));
-      localTts.providerForTesting =
-          LocalTtsProvider.withEngine(engine: mockEngine);
+      localTts.providerForTesting = LocalTtsProvider.withEngine(
+        modelManager: localTts.modelManager,
+        engine: mockEngine,
+      );
 
       final prefetcherFuture = localTts.startPrefetcherForTesting();
 

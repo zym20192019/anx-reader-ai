@@ -59,6 +59,15 @@ class LocalVoiceModelManager {
         _getBaseDir = getBaseDir,
         _getTempDir = getTempDir;
 
+  @visibleForTesting
+  static void setDirsForTesting({
+    Future<Directory> Function()? getBaseDir,
+    Future<Directory> Function()? getTempDir,
+  }) {
+    _instance._getBaseDir = getBaseDir;
+    _instance._getTempDir = getTempDir;
+  }
+
   Dio? _dio;
   Future<Directory> Function()? _getBaseDir;
   Future<Directory> Function()? _getTempDir;

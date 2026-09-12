@@ -820,8 +820,17 @@ class LocalTts extends BaseTts {
   @visibleForTesting
   Future<void> startPrefetcherForTesting() {
     _shouldStop = false;
+    if (_buffer.isEmpty) {
+      _hasFetchedInitial = false;
+    }
     return _startPrefetcher();
   }
+
+  @visibleForTesting
+  bool get hasFetchedInitialForTesting => _hasFetchedInitial;
+
+  @visibleForTesting
+  set hasFetchedInitialForTesting(bool value) => _hasFetchedInitial = value;
 
   @visibleForTesting
   void resetBufferForTesting() => _resetBuffer();
