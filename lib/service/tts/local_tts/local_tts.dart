@@ -14,6 +14,19 @@ import 'package:anx_reader/utils/log/common.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
+@visibleForTesting
+typedef TtsDetailCollector = Future<List<TtsSentence>> Function({
+  required int count,
+  bool includeCurrent,
+  int offset,
+});
+
+@visibleForTesting
+typedef TtsCfiHighlighter = Future<void> Function(String cfi);
+
+@visibleForTesting
+typedef TtsNextSectionHandler = Future<String?> Function();
+
 /// Offline natural voice text-to-speech service.
 /// Uses on-device model and Sherpa-ONNX runtime with queue-based sentence audio playback.
 class LocalTts extends BaseTts {
@@ -28,9 +41,10 @@ class LocalTts extends BaseTts {
 
   LocalTts._internal();
 
-  static const int _bufferCapacity = 5;
+  static const int _bufferCapacity = 2;
   static const int _fetchTimeoutSeconds = 15;
   static const int _maxConsecutiveEmpty = 3;
+  static const int _maxConsecutiveEmptyCollects = 3;
 
   static final TtsSegment _eofSegment = TtsSegment(
     sentence: const TtsSentence(text: '', cfi: null),
@@ -45,7 +59,11 @@ class LocalTts extends BaseTts {
   String? _currentVoiceText;
   int _audioFetchVersion = 0;
   int _consecutiveEmptyCount = 0;
+  int _consecutiveEmptyCollects = 0;
   bool _hasReachedEof = false;
+  bool _hasFetchedInitial = false;
+  bool _isFirstSegmentPlayed = false;
+  bool _skipGetHereOnNextSpeak = false;
 
   bool _isPrefetcherRunning = false;
   Completer<void>? _prefetcherCompleter;
@@ -61,8 +79,14 @@ class LocalTts extends BaseTts {
   bool isInit = false;
   bool _shouldStop = false;
 
-  final LocalTtsProvider provider = LocalTtsProvider();
+  LocalTtsProvider _provider = LocalTtsProvider();
   LocalVoiceModelManager _modelManager = LocalVoiceModelManager();
+
+  LocalTtsProvider get provider => _provider;
+
+  @visibleForTesting
+  set providerForTesting(LocalTtsProvider testProvider) =>
+      _provider = testProvider;
 
   LocalVoiceModelManager get modelManager => _modelManager;
 
@@ -71,6 +95,15 @@ class LocalTts extends BaseTts {
   @visibleForTesting
   set modelManagerForTesting(LocalVoiceModelManager manager) =>
       _modelManager = manager;
+
+  @visibleForTesting
+  TtsDetailCollector? detailCollectorForTesting;
+
+  @visibleForTesting
+  TtsCfiHighlighter? cfiHighlighterForTesting;
+
+  @visibleForTesting
+  TtsNextSectionHandler? nextSectionHandlerForTesting;
 
   @override
   final ValueNotifier<TtsStateEnum> ttsStateNotifier =
@@ -184,7 +217,10 @@ class LocalTts extends BaseTts {
     _currentSegment = null;
     _currentVoiceText = null;
     _consecutiveEmptyCount = 0;
+    _consecutiveEmptyCollects = 0;
     _hasReachedEof = false;
+    _hasFetchedInitial = false;
+    _isFirstSegmentPlayed = false;
   }
 
   Future<void> _disposePlayer() async {
@@ -198,6 +234,7 @@ class LocalTts extends BaseTts {
         await subToCancel.cancel();
       } catch (_) {}
     }
+
     if (playerToDispose != null) {
       try {
         await playerToDispose.stop();
@@ -209,7 +246,6 @@ class LocalTts extends BaseTts {
   }
 
   /// Parses raw returned sentence object into a valid [TtsSentence].
-  /// Preserves cfi when provided by map or model, but never fabricates a fake cfi for String callbacks.
   TtsSentence _parseSentence(dynamic raw) {
     if (raw == null) {
       return const TtsSentence(text: '', cfi: null);
@@ -234,8 +270,65 @@ class LocalTts extends BaseTts {
     return TtsSentence(text: raw.toString(), cfi: null);
   }
 
-  /// Producer: Sequentially fetches upcoming sentences and enqueues them for synthesis.
-  /// Holds single ownership over [getNextTextFunction] to prevent sentence skipping.
+  bool _isAlreadyBuffered(TtsSentence sentence) {
+    final cfi = sentence.cfi;
+    if (cfi != null && cfi.isNotEmpty) {
+      if (_currentSegment?.sentence.cfi == cfi) return true;
+      return _buffer.any((s) => s.sentence.cfi == cfi);
+    }
+    // When CFI is absent, do not use text.hashCode as a global unique identifier.
+    // Allow duplicate text sentences to play in queue order.
+    return false;
+  }
+
+  /// Collects sentences from the active reader or injected test collector
+  /// without modifying the reader cursor or triggering DOM highlights.
+  Future<List<TtsSentence>> _collectSentences(int count) async {
+    final isFirst = !_hasFetchedInitial;
+    final offset = isFirst ? 1 : (_buffer.isEmpty ? 1 : _buffer.length + 1);
+
+    if (detailCollectorForTesting != null) {
+      return await detailCollectorForTesting!(
+        count: count,
+        includeCurrent: isFirst,
+        offset: offset,
+      );
+    }
+
+    final state = epubPlayerKey.currentState;
+    if (state == null) {
+      return [];
+    }
+
+    try {
+      final sentences = await state.ttsCollectDetails(
+        count: count,
+        includeCurrent: isFirst,
+        offset: offset,
+      );
+      return sentences;
+    } catch (e) {
+      AnxLog.severe('Local TTS collect details error: $e');
+      return [];
+    }
+  }
+
+  Future<String?> _advanceNextSection() async {
+    if (nextSectionHandlerForTesting != null) {
+      return await nextSectionHandlerForTesting!();
+    }
+    final state = epubPlayerKey.currentState;
+    if (state == null) return null;
+    try {
+      return await state.ttsNextSection();
+    } catch (e) {
+      AnxLog.warning('Local TTS next section error: $e');
+      return null;
+    }
+  }
+
+  /// Producer: Sequentially peeks upcoming sentences and enqueues them for synthesis.
+  /// Never calls [getNextTextFunction] during prefetch to prevent cursor desync and DOM jumping.
   Future<void> _startPrefetcher() async {
     if (_isPrefetcherRunning) return;
     _isPrefetcherRunning = true;
@@ -249,55 +342,64 @@ class LocalTts extends BaseTts {
           continue;
         }
 
-        if (getNextTextFunction == null) {
-          _hasReachedEof = true;
-          _buffer.add(_eofSegment);
-          break;
-        }
-
-        final dynamic nextRaw;
-        try {
-          nextRaw = await getNextTextFunction!();
-        } catch (e) {
-          AnxLog.severe('Local TTS getNextTextFunction error: $e');
-          _hasReachedEof = true;
-          _buffer.add(_eofSegment);
-          break;
-        }
-
-        if (_shouldStop) break;
-
-        // Null response indicates immediate EOF
-        if (nextRaw == null) {
-          AnxLog.info('Local TTS received null text - reached EOF');
-          _hasReachedEof = true;
-          _buffer.add(_eofSegment);
-          break;
-        }
-
-        final sentence = _parseSentence(nextRaw);
-        if (sentence.text.trim().isEmpty) {
-          _consecutiveEmptyCount++;
-          if (_consecutiveEmptyCount >= _maxConsecutiveEmpty) {
-            AnxLog.info('Local TTS reached EOF after $_consecutiveEmptyCount empty sentences');
-            _hasReachedEof = true;
-            _buffer.add(_eofSegment);
-            break;
-          }
-          // Skip empty sentence without infinitely buffering silent segments
+        final neededCount = _bufferCapacity - _buffer.length;
+        if (neededCount <= 0) {
           await Future.delayed(const Duration(milliseconds: 50));
           continue;
         }
 
-        // Reset consecutive empty count on valid text
+        final sentences = await _collectSentences(neededCount);
+        if (_shouldStop) break;
+
+        final newSentences = <TtsSentence>[];
+        for (final s in sentences) {
+          if (!_isAlreadyBuffered(s)) {
+            newSentences.add(s);
+          }
+        }
+
+        if (newSentences.isEmpty) {
+          // If buffer is completely drained and no sentence returned, advance section
+          if (_buffer.isEmpty && _currentSegment == null) {
+            _consecutiveEmptyCollects++;
+            if (_consecutiveEmptyCollects >= _maxConsecutiveEmptyCollects) {
+              final nextSec = await _advanceNextSection();
+              if (nextSec == null || nextSec.isEmpty) {
+                _consecutiveEmptyCount++;
+                if (_consecutiveEmptyCount >= _maxConsecutiveEmpty) {
+                  AnxLog.info('Local TTS reached EOF: no more sentences or sections');
+                  _hasReachedEof = true;
+                  _buffer.add(_eofSegment);
+                  break;
+                }
+              } else {
+                _consecutiveEmptyCount = 0;
+                _consecutiveEmptyCollects = 0;
+                _hasFetchedInitial = false;
+              }
+            }
+          }
+          await Future.delayed(const Duration(milliseconds: 100));
+          continue;
+        }
+
         _consecutiveEmptyCount = 0;
+        _consecutiveEmptyCollects = 0;
+        _hasFetchedInitial = true;
 
-        final segment = TtsSegment(sentence: sentence)
-          ..fetchVersion = _audioFetchVersion;
-        _buffer.add(segment);
+        for (final sentence in newSentences) {
+          if (_shouldStop) break;
+          if (sentence.text.trim().isEmpty) {
+            continue;
+          }
 
-        // Fetch speech audio asynchronously for this segment
-        unawaited(_fetchAudioForSegment(segment));
+          final segment = TtsSegment(sentence: sentence)
+            ..fetchVersion = _audioFetchVersion;
+          _buffer.add(segment);
+
+          // Strictly serial synthesis: synthesize one segment at a time
+          await _fetchAudioForSegment(segment);
+        }
       }
     } catch (e) {
       AnxLog.severe('Local TTS prefetcher error: $e');
@@ -318,7 +420,11 @@ class LocalTts extends BaseTts {
           .timeout(const Duration(seconds: _fetchTimeoutSeconds));
 
       if (segment.fetchVersion == version && !_shouldStop) {
-        segment.audio = audio;
+        if (audio.isEmpty) {
+          segment.isSilent = true;
+        } else {
+          segment.audio = audio;
+        }
       }
     } catch (e) {
       AnxLog.warning('Local TTS synthesis segment error: $e');
@@ -329,9 +435,6 @@ class LocalTts extends BaseTts {
   }
 
   /// Internal teardown when player finishes naturally (EOF) or terminates.
-  /// Sets [_shouldStop] to true, sets state to stopped, disposes AudioPlayer,
-  /// and clears the buffer WITHOUT awaiting [_playerCompleter] itself,
-  /// thereby preventing self-await deadlocks while ensuring clean teardown.
   Future<void> _teardownOnEof() async {
     _shouldStop = true;
     updateTtsState(TtsStateEnum.stopped);
@@ -357,7 +460,8 @@ class LocalTts extends BaseTts {
   }
 
   /// Consumer: Sequentially consumes buffered segments and plays audio.
-  /// Never calls [getNextTextFunction], leaving reading progression strictly to the prefetcher.
+  /// Sets DOM highlight right before starting audio playback for that segment.
+  /// Never calls [getNextTextFunction], keeping reading highlight in exact sync with audio.
   Future<void> _startPlayer() async {
     if (_isPlayerRunning) return;
     _isPlayerRunning = true;
@@ -392,6 +496,7 @@ class LocalTts extends BaseTts {
         _currentSegment = segment;
         _currentVoiceText = segment.sentence.text;
 
+        // Highlight segment synchronously right before audio starts
         await _highlightSegment(segment);
 
         if (segment.isSilent ||
@@ -416,6 +521,9 @@ class LocalTts extends BaseTts {
 
         _playbackCompleter = null;
         _currentSegment = null;
+
+        // Note: We do NOT call getNextTextFunction here.
+        // Advancing cursor/highlight occurs strictly when the next segment begins.
       }
     } catch (e) {
       AnxLog.severe('Local TTS player loop error: $e');
@@ -433,12 +541,28 @@ class LocalTts extends BaseTts {
   }
 
   Future<void> _highlightSegment(TtsSegment segment) async {
-    final state = epubPlayerKey.currentState;
     final cfi = segment.sentence.cfi;
-    if (state == null || cfi == null || cfi.isEmpty) return;
-    try {
-      await state.ttsHighlightByCfi(cfi);
-    } catch (_) {}
+    if (cfi != null && cfi.isNotEmpty) {
+      if (cfiHighlighterForTesting != null) {
+        await cfiHighlighterForTesting!(cfi);
+        return;
+      }
+
+      final state = epubPlayerKey.currentState;
+      if (state == null) return;
+      try {
+        await state.ttsHighlightByCfi(cfi);
+      } catch (_) {}
+      return;
+    }
+
+    if (_isFirstSegmentPlayed) {
+      try {
+        await getNextTextFunction?.call();
+      } catch (_) {}
+    } else {
+      _isFirstSegmentPlayed = true;
+    }
   }
 
   @override
@@ -476,18 +600,23 @@ class LocalTts extends BaseTts {
     _shouldStop = false;
     _hasReachedEof = false;
     _consecutiveEmptyCount = 0;
+    _consecutiveEmptyCollects = 0;
     updateTtsState(TtsStateEnum.playing);
 
-    try {
-      await getHereFunction?.call();
-    } catch (_) {}
+    final skipGetHere = _skipGetHereOnNextSpeak;
+    _skipGetHereOnNextSpeak = false;
+
+    if (!skipGetHere) {
+      try {
+        await getHereFunction?.call();
+      } catch (_) {}
+    }
 
     unawaited(_startPrefetcher());
     await _startPlayer();
   }
 
   /// Synthesizes and plays preview audio for settings or test buttons.
-  /// Correctly handles playing -> stopped state lifecycle and safe fallback.
   Future<void> speakPreview(String text, {String? voice}) async {
     await stop();
 
@@ -539,6 +668,7 @@ class LocalTts extends BaseTts {
 
     try {
       _shouldStop = true;
+      _skipGetHereOnNextSpeak = false;
       updateTtsState(TtsStateEnum.stopped);
 
       if (_playbackCompleter != null && !_playbackCompleter!.isCompleted) {
@@ -579,6 +709,7 @@ class LocalTts extends BaseTts {
     try {
       await getPrevTextFunction?.call();
     } catch (_) {}
+    _skipGetHereOnNextSpeak = true;
     await speak();
   }
 
@@ -589,6 +720,7 @@ class LocalTts extends BaseTts {
     try {
       await getNextTextFunction?.call();
     } catch (_) {}
+    _skipGetHereOnNextSpeak = true;
     await speak();
   }
 
@@ -606,7 +738,10 @@ class LocalTts extends BaseTts {
     getHereFunction = null;
     getNextTextFunction = null;
     getPrevTextFunction = null;
-    provider.dispose();
+    detailCollectorForTesting = null;
+    cfiHighlighterForTesting = null;
+    nextSectionHandlerForTesting = null;
+    await provider.dispose();
   }
 
   @visibleForTesting
@@ -614,6 +749,9 @@ class LocalTts extends BaseTts {
 
   @visibleForTesting
   List<TtsSegment> get bufferForTesting => _buffer;
+
+  @visibleForTesting
+  Set<String> get bufferKeysForTesting => _bufferKeys;
 
   @visibleForTesting
   bool get hasReachedEofForTesting => _hasReachedEof;
@@ -659,4 +797,8 @@ class LocalTts extends BaseTts {
 
   @visibleForTesting
   void resetBufferForTesting() => _resetBuffer();
+
+  @visibleForTesting
+  Future<void> fetchAudioForSegmentForTesting(TtsSegment segment) =>
+      _fetchAudioForSegment(segment);
 }

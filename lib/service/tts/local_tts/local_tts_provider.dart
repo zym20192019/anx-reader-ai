@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:anx_reader/service/tts/local_tts/local_tts_engine.dart';
@@ -29,6 +30,7 @@ class LocalTtsProvider extends TtsServiceProvider {
   final LocalVoiceModelManager _modelManager;
   final LocalTtsEngine _engine;
   String? _initializedModelId;
+  Future<void>? _initFuture;
 
   LocalVoiceModel get defaultModel => LocalVoiceModel.defaultChineseModel;
 
@@ -55,6 +57,36 @@ class LocalTtsProvider extends TtsServiceProvider {
     ];
   }
 
+  Future<void> _ensureInitialized() async {
+    if (_engine.isAvailable && _initializedModelId == defaultModel.id) {
+      return;
+    }
+
+    _initFuture ??= _doInit();
+    try {
+      await _initFuture;
+    } finally {
+      if (!_engine.isAvailable || _initializedModelId != defaultModel.id) {
+        _initFuture = null;
+      }
+    }
+  }
+
+  Future<void> _doInit() async {
+    final isInstalled = await _modelManager.isModelInstalled(defaultModel);
+    if (!isInstalled) {
+      throw StateError('离线声音包尚未安装，请在设置中下载后使用');
+    }
+
+    final modelDir = await _modelManager.getModelDir(defaultModel);
+    AnxLog.info('Initializing local TTS engine from ${modelDir.path}');
+    await _engine.init(
+      modelDir: modelDir.path,
+      model: defaultModel,
+    );
+    _initializedModelId = defaultModel.id;
+  }
+
   /// Synthesizes [text] using the local on-device voice engine.
   @override
   Future<Uint8List> speak(
@@ -63,28 +95,16 @@ class LocalTtsProvider extends TtsServiceProvider {
     double rate,
     double pitch,
   ) async {
-    final isInstalled = await _modelManager.isModelInstalled(defaultModel);
-    if (!isInstalled) {
-      throw StateError('离线声音包尚未安装，请在设置中下载后使用');
-    }
-
-    final modelDir = await _modelManager.getModelDir(defaultModel);
-    if (!_engine.isAvailable || _initializedModelId != defaultModel.id) {
-      AnxLog.info('Initializing local TTS engine from ${modelDir.path}');
-      await _engine.init(
-        modelDir: modelDir.path,
-        model: defaultModel,
-      );
-      _initializedModelId = defaultModel.id;
-    }
+    await _ensureInitialized();
 
     // Map rate (default 1.0) to engine speed
     final speed = rate > 0 ? rate : 1.0;
     return await _engine.synthesize(text, speed: speed);
   }
 
-  void dispose() {
-    _engine.dispose();
+  Future<void> dispose() async {
+    _initFuture = null;
     _initializedModelId = null;
+    await _engine.dispose();
   }
 }
